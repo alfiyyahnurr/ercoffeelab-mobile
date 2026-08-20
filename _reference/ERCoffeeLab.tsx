@@ -5,7 +5,8 @@ import {
   Receipt, Gift, LogOut, CreditCard, Wallet, QrCode, Truck, Package,
   ChevronDown, Flame, Snowflake, Milk, Sparkles, Eye, EyeOff, Phone, Mail,
   Lock, ArrowRight, Ticket, Trash2, TrendingUp, Award, BadgeCheck, Navigation,
-  ShoppingCart, CheckCircle2, Circle, HelpCircle, Pencil, MessageCircle, Instagram, Tag,
+  ShoppingCart, CheckCircle2, Circle, HelpCircle, Pencil, MessageCircle, Tag,
+
 } from "lucide-react";
 
 /* ============================================================================
@@ -1504,9 +1505,10 @@ export default function ERCoffeeLabApp() {
             <span className="text-[10.5px] font-semibold" style={{ color: NAVY }}>Email</span>
           </a>
           <a href="https://www.instagram.com/ercoffeelabs/" target="_blank" rel="noreferrer" className="flex flex-col items-center gap-2 border border-[#EEEFF5] rounded-xl py-4">
-            <Instagram size={19} color="#C9576B" />
+            <Sparkles size={19} color="#C9576B" />
             <span className="text-[10.5px] font-semibold" style={{ color: NAVY }}>Instagram</span>
           </a>
+
         </div>
 
         <p className="text-[12.5px] font-semibold mb-2.5" style={{ color: INK_2 }}>Frequently Asked Questions</p>

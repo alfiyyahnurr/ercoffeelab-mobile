@@ -82,15 +82,7 @@ export default function RootLayout() {
         <OutletProvider>
           <CartProvider>
             <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-              {Platform.OS === 'web' ? (
-                <View style={styles.webOuterContainer}>
-                  <View style={styles.webInnerContainer}>
-                    <Stack screenOptions={{ headerShown: false }} />
-                  </View>
-                </View>
-              ) : (
-                <Stack screenOptions={{ headerShown: false }} />
-              )}
+              <Stack screenOptions={{ headerShown: false }} />
             </ThemeProvider>
           </CartProvider>
         </OutletProvider>
@@ -98,23 +90,4 @@ export default function RootLayout() {
     </SafeAreaProvider>
   );
 }
-
-const styles = StyleSheet.create({
-  webOuterContainer: {
-    flex: 1,
-    backgroundColor: '#0E1230',
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: '100vh' as any,
-    width: '100%',
-  },
-  webInnerContainer: {
-    flex: 1,
-    width: '100%',
-    maxWidth: 480,
-    backgroundColor: '#FFFFFF',
-    minHeight: '100vh' as any,
-    ...(Platform.OS === 'web' ? ({ boxShadow: '0 0 40px rgba(0, 0, 0, 0.45)' } as any) : {}),
-  },
-});
 

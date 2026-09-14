@@ -4,7 +4,7 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  Dimensions,
+  useWindowDimensions,
   FlatList,
   NativeSyntheticEvent,
   NativeScrollEvent,
@@ -12,8 +12,6 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Coffee, Sparkles, BadgeCheck } from 'lucide-react-native';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const SLIDES = [
   {
@@ -41,12 +39,14 @@ const SLIDES = [
 
 export default function OnboardingScreen() {
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const screenWidth = width > 0 ? width : 390;
   const [activeIndex, setActiveIndex] = useState(0);
   const flatListRef = useRef<FlatList>(null);
 
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const offsetX = event.nativeEvent.contentOffset.x;
-    const index = Math.round(offsetX / SCREEN_WIDTH);
+    const index = Math.round(offsetX / screenWidth);
     if (index >= 0 && index < SLIDES.length && index !== activeIndex) {
       setActiveIndex(index);
     }
@@ -56,7 +56,7 @@ export default function OnboardingScreen() {
     if (index >= 0 && index < SLIDES.length) {
       setActiveIndex(index);
       flatListRef.current?.scrollToOffset({
-        offset: index * SCREEN_WIDTH,
+        offset: index * screenWidth,
         animated: true,
       });
     }
@@ -84,16 +84,16 @@ export default function OnboardingScreen() {
         onScroll={handleScroll}
         scrollEventThrottle={16}
         getItemLayout={(_, index) => ({
-          length: SCREEN_WIDTH,
-          offset: SCREEN_WIDTH * index,
+          length: screenWidth,
+          offset: screenWidth * index,
           index,
         })}
         renderItem={({ item }) => {
           const IconComponent = item.icon;
           return (
-            <View style={styles.slideContainer}>
+            <View style={[styles.slideContainer, { width: screenWidth }]}>
               {/* Fore Style Hero Card Visual */}
-              <View style={styles.heroCard}>
+              <View style={[styles.heroCard, { width: Math.max(screenWidth - 64, 260) }]}>
                 <View style={styles.heroBadge}>
                   <Text style={styles.heroBadgeText}>{item.badgeText}</Text>
                 </View>
@@ -160,13 +160,11 @@ const styles = StyleSheet.create({
     paddingTop: 48,
   },
   slideContainer: {
-    width: SCREEN_WIDTH,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 32,
+    paddingHorizontal: 24,
   },
   heroCard: {
-    width: SCREEN_WIDTH - 64,
     height: 220,
     backgroundColor: '#181F4B',
     borderRadius: 28,

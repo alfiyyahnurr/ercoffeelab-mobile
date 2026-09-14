@@ -1,21 +1,45 @@
-import * as SecureStore from 'expo-secure-store';
+import Constants from 'expo-constants';
+import { Platform } from 'react-native';
+import { getToken } from './auth-store';
+
+/**
+ * Dynamically resolves the API base URL.
+ * Automatically extracts the Metro host IP on physical mobile devices / Expo Go
+ * to avoid connection failures on localhost.
+ */
+export function getApiBaseUrl(): string {
+  const envUrl = process.env.EXPO_PUBLIC_API_URL;
+  if (envUrl && envUrl.trim().length > 0) {
+    return envUrl.trim();
+  }
+
+  // On web browser fallback to localhost:3000
+  if (Platform.OS === 'web') {
+    return 'http://localhost:3000';
+  }
+
+  // On physical mobile device or Expo Go, deduce host IP from Expo Constants
+  const hostUri = Constants.expoConfig?.hostUri || (Constants as any).manifest?.debuggerHost;
+  if (hostUri) {
+    const hostIp = hostUri.split(':')[0];
+    if (hostIp && hostIp !== 'localhost' && hostIp !== '127.0.0.1') {
+      return `http://${hostIp}:3000`;
+    }
+  }
+
+  return 'http://localhost:3000';
+}
 
 /**
  * Centralized API fetch wrapper for ERCoffeeLab Mobile App.
- * Automatically injects JWT Bearer token stored in hardware encrypted SecureStore.
+ * Automatically injects JWT Bearer token stored securely via expo-secure-store.
  */
 export async function mobileApiFetch<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const baseUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
-  let token: string | null = null;
-
-  try {
-    token = await SecureStore.getItemAsync('customer_jwt');
-  } catch (e) {
-    console.warn('[SecureStore] Failed to read token:', e);
-  }
+  const baseUrl = getApiBaseUrl();
+  const token = await getToken();
 
   const isFormData = options.body instanceof FormData;
   const headers: Record<string, string> = {
@@ -51,7 +75,7 @@ export async function mobileApiFetch<T>(
 }
 
 /**
- * Helper to get full image URL for product thumbnails
+ * Helper to construct full image URL for product thumbnails and assets.
  */
 export function getImageUrl(url?: string | null): string | null {
   if (!url || typeof url !== 'string' || !url.trim()) return null;
@@ -59,6 +83,6 @@ export function getImageUrl(url?: string | null): string | null {
   if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('data:')) {
     return trimmed;
   }
-  const baseUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+  const baseUrl = getApiBaseUrl();
   return `${baseUrl}${trimmed.startsWith('/') ? '' : '/'}${trimmed}`;
 }

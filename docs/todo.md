@@ -47,15 +47,16 @@
 ---
 
 ### Phase 5: Cart & Checkout Flow (Pickup/Delivery & Midtrans Payment)
-- [ ] Build Cart Screen (`app/(main)/cart.tsx`) with item list & quantity modifiers
-- [ ] Build Checkout Screen (`app/(main)/checkout.tsx`):
+- [x] Build Cart Screen (`app/(main)/cart.tsx`) with item list & quantity modifiers
+- [x] Build Checkout Screen (`app/(main)/checkout.tsx`):
   - Toggle Mode: **Pickup** (Store Pickup) vs **Delivery** (Home Delivery)
-  - Delivery Address Input & Contact Details
-  - Promo Voucher Input Box consuming `GET /api/vouchers` with instant discount preview
-  - Subtotal, Discount, Delivery Fee & Grand Total breakdown
-- [ ] Connect `POST /api/orders` (triggers Midtrans charge token generation)
-- [ ] Build Midtrans WebView Modal (`app/modal/payment-webview.tsx`) using `react-native-webview`
-- [ ] Handle payment completion redirect and navigate to Order Tracking Screen
+  - Delivery Address Input & Distance-based real-time delivery fee calculation (Haversine formula)
+  - Out-of-range delivery radius guard & prevention
+  - Promo Voucher Input Box consuming `/api/vouchers/validate` with instant discount preview
+  - Subtotal, Discount, Dynamic Delivery Fee & Grand Total breakdown
+- [x] Connect `POST /api/orders` (verified with 6-digit Security PIN & server-side recalculated pricing)
+- [x] Build Midtrans WebView Modal (`app/modal/payment-webview.tsx`) using `react-native-webview`
+- [x] Handle payment completion redirect and navigate to Order Tracking Screen
 
 ---
 

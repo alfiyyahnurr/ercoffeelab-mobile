@@ -25,12 +25,23 @@ import {
   Clock,
   ShieldCheck,
   X,
+  Navigation,
 } from 'lucide-react-native';
 
 import { useCart } from '@/lib/cart-store';
 import { getToken } from '@/lib/auth-store';
 import { mobileApiFetch } from '@/lib/api-client';
 import { useOutlet } from '@/lib/outlet-store';
+
+interface DeliveryQuoteResult {
+  isDeliverable: boolean;
+  distanceKm: number;
+  deliveryFee: number;
+  maxDistanceKm: number;
+  tierId?: number | null;
+  outletName?: string;
+  message?: string;
+}
 
 interface PaymentMethodOption {
   id: number;
@@ -82,10 +93,41 @@ export default function CheckoutScreen() {
   const [pinError, setPinError] = useState<string | null>(null);
   const pinInputRefs = useRef<(TextInput | null)[]>([]);
 
-  // Fixed Flat Delivery Fee = Rp 10.000
-  const deliveryFee = fulfillmentType === 'delivery' ? 10000 : 0;
+  // Delivery Quote based on customer coordinates and outlet
+  const targetLat = selectedAddress?.latitude ?? -6.9344;
+  const targetLng = selectedAddress?.longitude ?? 107.6871;
+  const outletId = selectedOutlet?.id || 1;
+
+  const { data: deliveryQuote, isLoading: isLoadingDeliveryQuote } = useQuery<DeliveryQuoteResult>({
+    queryKey: ['delivery-quote', outletId, targetLat, targetLng],
+    queryFn: async () => {
+      try {
+        return await mobileApiFetch<DeliveryQuoteResult>(
+          `/api/delivery/calculate?outletId=${outletId}&latitude=${targetLat}&longitude=${targetLng}`
+        );
+      } catch (err: any) {
+        return {
+          isDeliverable: true,
+          distanceKm: 0,
+          deliveryFee: 10000,
+          maxDistanceKm: 10,
+          message: 'Menggunakan tarif standar',
+        };
+      }
+    },
+    enabled: fulfillmentType === 'delivery',
+  });
+
+  const isDeliverable =
+    fulfillmentType === 'delivery' ? (deliveryQuote ? deliveryQuote.isDeliverable : true) : true;
+  const deliveryFee =
+    fulfillmentType === 'delivery'
+      ? deliveryQuote
+        ? deliveryQuote.deliveryFee
+        : 10000
+      : 0;
   const discountAmount = appliedVoucher ? appliedVoucher.discount : 0;
-  const grandTotal = Math.max(0, totalAmount - discountAmount + deliveryFee);
+  const grandTotal = Math.max(0, totalAmount - discountAmount + (isDeliverable ? deliveryFee : 0));
 
   // Fetch active payment methods from API
   const { data: paymentMethodsData } = useQuery({
@@ -217,6 +259,13 @@ export default function CheckoutScreen() {
       return;
     }
 
+    if (fulfillmentType === 'delivery' && deliveryQuote && !deliveryQuote.isDeliverable) {
+      setErrorMessage(
+        deliveryQuote.message || 'Alamat pengiriman di luar jangkauan cabang yang dipilih.'
+      );
+      return;
+    }
+
     setShowPinModal(true);
   };
 
@@ -242,7 +291,7 @@ export default function CheckoutScreen() {
         addons: i.addons.map((a) => ({ name: a.name, price: a.price })),
       }));
 
-      // 1. Create Order POST /api/orders with PIN verification
+      // 1. Create Order POST /api/orders with PIN verification and distance coordinates
       const orderRes = await mobileApiFetch<{
         id: number;
         orderNumber: string;
@@ -251,9 +300,11 @@ export default function CheckoutScreen() {
         method: 'POST',
         body: JSON.stringify({
           pin: enteredPin,
-          outletId: 1,
+          outletId: outletId,
           fulfillmentType: fulfillmentType,
           deliveryAddress: fulfillmentType === 'delivery' ? deliveryAddress.trim() : undefined,
+          deliveryLatitude: fulfillmentType === 'delivery' ? targetLat : undefined,
+          deliveryLongitude: fulfillmentType === 'delivery' ? targetLng : undefined,
           paymentMethodId: selectedPaymentId,
           voucherCode: appliedVoucher ? appliedVoucher.code : undefined,
           items: payloadItems,
@@ -380,6 +431,43 @@ export default function CheckoutScreen() {
                 numberOfLines={2}
               />
 
+              {/* Real-time Distance & Fee Quote Badges */}
+              {isLoadingDeliveryQuote ? (
+                <View style={styles.quoteLoadingBox}>
+                  <ActivityIndicator size="small" color="#C9A876" style={{ marginRight: 8 }} />
+                  <Text style={styles.quoteLoadingText}>Menghitung estimasi jarak & ongkir...</Text>
+                </View>
+              ) : deliveryQuote ? (
+                deliveryQuote.isDeliverable ? (
+                  <View style={styles.quoteSuccessBadge}>
+                    <View style={styles.quoteIconCircle}>
+                      <Navigation size={13} color="#C9A876" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.quoteSuccessDistance}>
+                        Jarak ke {deliveryQuote.outletName || selectedOutlet.name}: {deliveryQuote.distanceKm} km
+                      </Text>
+                      <Text style={styles.quoteSuccessFee}>
+                        Ongkir: {formatRupiah(deliveryQuote.deliveryFee)}
+                      </Text>
+                    </View>
+                  </View>
+                ) : (
+                  <View style={styles.quoteErrorCard}>
+                    <AlertCircle size={18} color="#C9576B" style={{ marginRight: 8 }} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.quoteErrorTitle}>
+                        Di Luar Jangkauan ({deliveryQuote.distanceKm} km)
+                      </Text>
+                      <Text style={styles.quoteErrorDesc}>
+                        {deliveryQuote.message ||
+                          `Maksimal jangkauan delivery cabang ini adalah ${deliveryQuote.maxDistanceKm} km.`}
+                      </Text>
+                    </View>
+                  </View>
+                )
+              ) : null}
+
               <View style={styles.deliveryTimeRow}>
                 <Clock size={14} color="#6B7088" style={{ marginRight: 6 }} />
                 <Text style={styles.deliveryTimeText}>{deliveryTime}</Text>
@@ -389,10 +477,12 @@ export default function CheckoutScreen() {
             <View style={styles.outletLocationBox}>
               <View style={styles.outletLocationHeader}>
                 <MapPin size={18} color="#C9A876" style={{ marginRight: 8 }} />
-                <Text style={styles.outletLocationTitle}>ER Coffee Lab Bandung</Text>
+                <Text style={styles.outletLocationTitle}>
+                  {selectedOutlet?.name || 'ER Coffee Lab Bandung'}
+                </Text>
               </View>
               <Text style={styles.outletLocationAddress}>
-                Jl. Soekarno Hatta No. 45, Bandung (Store Siap Dipickup)
+                {selectedOutlet?.address || 'Jl. Soekarno Hatta No. 45, Bandung (Store Siap Dipickup)'}
               </Text>
             </View>
           )}
@@ -549,8 +639,24 @@ export default function CheckoutScreen() {
 
           {fulfillmentType === 'delivery' && (
             <View style={[styles.summaryRow, { marginTop: 8 }]}>
-              <Text style={styles.summaryLabel}>Biaya Ongkos Kirim</Text>
-              <Text style={styles.summaryValue}>{formatRupiah(deliveryFee)}</Text>
+              <View>
+                <Text style={styles.summaryLabel}>Biaya Ongkos Kirim</Text>
+                {deliveryQuote && (
+                  <Text style={styles.summarySubLabel}>
+                    {deliveryQuote.isDeliverable
+                      ? `Jarak ${deliveryQuote.distanceKm} km`
+                      : 'Di luar radius'}
+                  </Text>
+                )}
+              </View>
+              <Text
+                style={[
+                  styles.summaryValue,
+                  !isDeliverable && { color: '#C9576B', fontFamily: 'SourceSans3_700Bold' },
+                ]}
+              >
+                {isDeliverable ? formatRupiah(deliveryFee) : 'Tidak Tersedia'}
+              </Text>
             </View>
           )}
 
@@ -586,13 +692,22 @@ export default function CheckoutScreen() {
         </View>
 
         <TouchableOpacity
-          style={styles.payNowButton}
+          style={[
+            styles.payNowButton,
+            (!isDeliverable || submitting) && styles.payNowButtonDisabled,
+          ]}
           onPress={handleOpenPinModal}
-          disabled={submitting}
+          disabled={!isDeliverable || submitting}
           activeOpacity={0.85}
         >
-          <ShieldCheck size={18} color="#181F4B" style={{ marginRight: 6 }} />
-          <Text style={styles.payNowText}>Proses Pembayaran</Text>
+          <ShieldCheck
+            size={18}
+            color={!isDeliverable ? '#9AA0A6' : '#181F4B'}
+            style={{ marginRight: 6 }}
+          />
+          <Text style={[styles.payNowText, !isDeliverable && styles.payNowTextDisabled]}>
+            {!isDeliverable ? 'Di Luar Jangkauan' : 'Proses Pembayaran'}
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -809,6 +924,71 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E7E8F0',
   },
+  quoteLoadingBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FAF7F0',
+    padding: 10,
+    borderRadius: 10,
+    marginTop: 8,
+  },
+  quoteLoadingText: {
+    fontFamily: 'SourceSans3_400Regular',
+    fontSize: 12,
+    color: '#6B7088',
+  },
+  quoteSuccessBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F3EFE6',
+    borderWidth: 1,
+    borderColor: '#E7DEC8',
+    padding: 10,
+    borderRadius: 12,
+    marginTop: 10,
+  },
+  quoteIconCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#181F4B',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  quoteSuccessDistance: {
+    fontFamily: 'AlbertSans_700Bold',
+    fontSize: 12,
+    color: '#181F4B',
+  },
+  quoteSuccessFee: {
+    fontFamily: 'SourceSans3_600SemiBold',
+    fontSize: 12,
+    color: '#9E7B4F',
+    marginTop: 1,
+  },
+  quoteErrorCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#FDF0F2',
+    borderWidth: 1,
+    borderColor: '#FAD4DB',
+    padding: 12,
+    borderRadius: 12,
+    marginTop: 10,
+  },
+  quoteErrorTitle: {
+    fontFamily: 'AlbertSans_700Bold',
+    fontSize: 13,
+    color: '#C9576B',
+  },
+  quoteErrorDesc: {
+    fontFamily: 'SourceSans3_400Regular',
+    fontSize: 12,
+    color: '#C9576B',
+    marginTop: 2,
+    lineHeight: 16,
+  },
   deliveryTimeRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1016,6 +1196,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#6B7088',
   },
+  summarySubLabel: {
+    fontFamily: 'SourceSans3_400Regular',
+    fontSize: 11,
+    color: '#9E7B4F',
+    marginTop: 2,
+  },
   summaryValue: {
     fontFamily: 'SourceSans3_600SemiBold',
     fontSize: 13,
@@ -1090,10 +1276,16 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: 24,
   },
+  payNowButtonDisabled: {
+    backgroundColor: '#E7E8F0',
+  },
   payNowText: {
     fontFamily: 'SourceSans3_700Bold',
     fontSize: 14,
     color: '#181F4B',
+  },
+  payNowTextDisabled: {
+    color: '#9AA0A6',
   },
 
   // Modal PIN Verification Styles

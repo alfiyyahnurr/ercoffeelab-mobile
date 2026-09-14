@@ -19,6 +19,8 @@ export interface DeliveryAddress {
   recipientName?: string;
   recipientPhone?: string;
   isGps?: boolean;
+  latitude?: number;
+  longitude?: number;
 }
 
 const ADDRESS_STORAGE_KEY = 'selected_delivery_address';
@@ -27,6 +29,8 @@ const DEFAULT_ADDRESS: DeliveryAddress = {
   label: 'Lokasi GPS Terkini',
   addressText: 'Jl. Buahbatu No. 45, Sekejati, Bandung',
   isGps: true,
+  latitude: -6.9344,
+  longitude: 107.6871,
 };
 
 interface OutletContextType {

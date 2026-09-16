@@ -35,7 +35,7 @@ import { useQueryClient } from '@tanstack/react-query';
 
 export default function AddAddressScreen() {
   const router = useRouter();
-  const { selectedOutlet } = useOutlet();
+  const { selectedOutlet, setSelectedAddress } = useOutlet();
   const params = useLocalSearchParams<{
     id?: string;
     label?: string;
@@ -45,6 +45,7 @@ export default function AddAddressScreen() {
     recipientPhone?: string;
     latitude?: string;
     longitude?: string;
+    fromCheckout?: string;
   }>();
   const queryClient = useQueryClient();
 
@@ -210,6 +211,7 @@ export default function AddAddressScreen() {
     };
 
     try {
+      let savedAddressId = addressId || Date.now();
       if (isEditMode && addressId) {
         // API call PUT /api/customers/me/addresses/:id
         await mobileApiFetch(`/api/customers/me/addresses/${addressId}`, {
@@ -223,21 +225,61 @@ export default function AddAddressScreen() {
         });
       } else {
         // API call POST /api/customers/me/addresses
-        const newId = Date.now();
-        await mobileApiFetch<{ message: string }>('/api/customers/me/addresses', {
-          method: 'POST',
-          body: JSON.stringify(addressPayload),
-        }).catch(() => {});
+        const res = await mobileApiFetch<{ data?: { id?: number }; message?: string }>(
+          '/api/customers/me/addresses',
+          {
+            method: 'POST',
+            body: JSON.stringify(addressPayload),
+          }
+        ).catch(() => null);
+
+        if (res?.data?.id) {
+          savedAddressId = res.data.id;
+        }
 
         queryClient.setQueryData(['saved-addresses'], (old: any[] | undefined) => {
           const list = Array.isArray(old) ? old : [];
-          return [{ id: newId, ...addressPayload }, ...list];
+          return [{ id: savedAddressId, ...addressPayload }, ...list];
         });
       }
 
-      router.replace('/profile/saved-addresses' as any);
+      queryClient.invalidateQueries({ queryKey: ['saved-addresses'] });
+
+      // Auto-set as active selected address for checkout & map calculations
+      await setSelectedAddress({
+        id: savedAddressId,
+        label: addressPayload.label,
+        addressText: addressPayload.addressText,
+        recipientName: addressPayload.recipientName,
+        recipientPhone: addressPayload.recipientPhone,
+        isGps: false,
+        latitude: addressPayload.latitude,
+        longitude: addressPayload.longitude,
+      });
+
+      if (params.fromCheckout === 'true') {
+        if (router.canGoBack()) {
+          router.back();
+        } else {
+          router.replace('/(main)/checkout' as any);
+        }
+      } else if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace('/profile/saved-addresses' as any);
+      }
     } catch {
-      router.replace('/profile/saved-addresses' as any);
+      if (params.fromCheckout === 'true') {
+        if (router.canGoBack()) {
+          router.back();
+        } else {
+          router.replace('/(main)/checkout' as any);
+        }
+      } else if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace('/profile/saved-addresses' as any);
+      }
     } finally {
       setSubmitting(false);
     }

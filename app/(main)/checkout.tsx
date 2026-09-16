@@ -26,6 +26,9 @@ import {
   ShieldCheck,
   X,
   Navigation,
+  Plus,
+  Home,
+  Briefcase,
 } from 'lucide-react-native';
 
 import { useCart } from '@/lib/cart-store';
@@ -62,14 +65,55 @@ interface ActiveVoucherOption {
 export default function CheckoutScreen() {
   const router = useRouter();
   const { items, totalAmount, clearCart } = useCart();
-  const { selectedOutlet, selectedAddress } = useOutlet();
+  const { selectedOutlet, selectedAddress, setSelectedAddress } = useOutlet();
 
   const [fulfillmentType, setFulfillmentType] = useState<'pickup' | 'delivery'>('pickup');
   const [deliveryAddress, setDeliveryAddress] = useState<string>(
-    selectedAddress?.addressText || 'Jl. Buahbatu No. 45, Sekejati, Bandung'
+    selectedAddress?.addressText || ''
   );
   const [courierNotes, setCourierNotes] = useState<string>('');
   const [deliveryTime, setDeliveryTime] = useState<string>('Kirim Secepatnya (15-30 Menit)');
+
+  // Query customer saved addresses
+  const { data: savedAddresses, isLoading: isLoadingAddresses } = useQuery({
+    queryKey: ['saved-addresses'],
+    queryFn: async () => {
+      try {
+        const res = await mobileApiFetch<{ data: any[] }>('/api/customers/me/addresses');
+        return Array.isArray(res?.data) ? res.data : [];
+      } catch {
+        return [];
+      }
+    },
+  });
+
+  // Auto-sync deliveryAddress with selectedAddress
+  useEffect(() => {
+    if (selectedAddress?.addressText) {
+      setDeliveryAddress(selectedAddress.addressText);
+    }
+  }, [selectedAddress]);
+
+  // If selectedAddress is empty/default and savedAddresses exists, auto-select the first saved address
+  useEffect(() => {
+    if (
+      savedAddresses &&
+      savedAddresses.length > 0 &&
+      (!selectedAddress || (!selectedAddress.id && !selectedAddress.isGps && !selectedAddress.addressText))
+    ) {
+      const first = savedAddresses[0];
+      setSelectedAddress({
+        id: first.id,
+        label: first.label || 'Rumah',
+        addressText: first.addressText,
+        recipientName: first.recipientName,
+        recipientPhone: first.recipientPhone,
+        isGps: false,
+        latitude: first.latitude ? Number(first.latitude) : undefined,
+        longitude: first.longitude ? Number(first.longitude) : undefined,
+      });
+    }
+  }, [savedAddresses, selectedAddress]);
 
   // Voucher states
   const [voucherCodeInput, setVoucherCodeInput] = useState<string>('');
@@ -98,6 +142,15 @@ export default function CheckoutScreen() {
   const targetLng = selectedAddress?.longitude ?? 107.6871;
   const outletId = selectedOutlet?.id || 1;
 
+  const hasAddresses = Boolean(
+    (savedAddresses && savedAddresses.length > 0) ||
+      (selectedAddress && (selectedAddress.addressText || selectedAddress.isGps || selectedAddress.id))
+  );
+
+  const hasValidDeliveryAddress =
+    fulfillmentType === 'pickup' ||
+    Boolean(hasAddresses && (selectedAddress?.addressText || deliveryAddress.trim()));
+
   const { data: deliveryQuote, isLoading: isLoadingDeliveryQuote } = useQuery<DeliveryQuoteResult>({
     queryKey: ['delivery-quote', outletId, targetLat, targetLng],
     queryFn: async () => {
@@ -119,7 +172,9 @@ export default function CheckoutScreen() {
   });
 
   const isDeliverable =
-    fulfillmentType === 'delivery' ? (deliveryQuote ? deliveryQuote.isDeliverable : true) : true;
+    fulfillmentType === 'delivery'
+      ? (deliveryQuote ? deliveryQuote.isDeliverable : true) && hasValidDeliveryAddress
+      : true;
   const deliveryFee =
     fulfillmentType === 'delivery'
       ? deliveryQuote
@@ -254,16 +309,18 @@ export default function CheckoutScreen() {
       return;
     }
 
-    if (fulfillmentType === 'delivery' && !deliveryAddress.trim()) {
-      setErrorMessage('Alamat pengiriman wajib diisi.');
-      return;
-    }
+    if (fulfillmentType === 'delivery') {
+      if (!hasValidDeliveryAddress || !deliveryAddress.trim()) {
+        setErrorMessage('Silakan pilih atau tambahkan alamat pengiriman terlebih dahulu.');
+        return;
+      }
 
-    if (fulfillmentType === 'delivery' && deliveryQuote && !deliveryQuote.isDeliverable) {
-      setErrorMessage(
-        deliveryQuote.message || 'Alamat pengiriman di luar jangkauan cabang yang dipilih.'
-      );
-      return;
+      if (deliveryQuote && !deliveryQuote.isDeliverable) {
+        setErrorMessage(
+          deliveryQuote.message || 'Alamat pengiriman di luar jangkauan cabang yang dipilih.'
+        );
+        return;
+      }
     }
 
     setShowPinModal(true);
@@ -291,6 +348,10 @@ export default function CheckoutScreen() {
         addons: i.addons.map((a) => ({ name: a.name, price: a.price })),
       }));
 
+      const fullDeliveryAddress = courierNotes.trim()
+        ? `${deliveryAddress.trim()} (Catatan: ${courierNotes.trim()})`
+        : deliveryAddress.trim();
+
       // 1. Create Order POST /api/orders with PIN verification and distance coordinates
       const orderRes = await mobileApiFetch<{
         id: number;
@@ -302,7 +363,7 @@ export default function CheckoutScreen() {
           pin: enteredPin,
           outletId: outletId,
           fulfillmentType: fulfillmentType,
-          deliveryAddress: fulfillmentType === 'delivery' ? deliveryAddress.trim() : undefined,
+          deliveryAddress: fulfillmentType === 'delivery' ? fullDeliveryAddress : undefined,
           deliveryLatitude: fulfillmentType === 'delivery' ? targetLat : undefined,
           deliveryLongitude: fulfillmentType === 'delivery' ? targetLng : undefined,
           paymentMethodId: selectedPaymentId,
@@ -421,15 +482,82 @@ export default function CheckoutScreen() {
                 <Text style={styles.deliveryAddressTitle}>Alamat Pengiriman</Text>
               </View>
 
-              <TextInput
-                style={styles.addressInput}
-                value={deliveryAddress}
-                onChangeText={setDeliveryAddress}
-                placeholder="Masukkan alamat pengiriman lengkap..."
-                placeholderTextColor="#9AA0A6"
-                multiline
-                numberOfLines={2}
-              />
+              {isLoadingAddresses ? (
+                <View style={styles.addressLoadingBox}>
+                  <ActivityIndicator size="small" color="#181F4B" style={{ marginRight: 8 }} />
+                  <Text style={styles.addressLoadingText}>Memuat alamat...</Text>
+                </View>
+              ) : hasAddresses ? (
+                <View style={styles.selectedAddressCard}>
+                  <View style={styles.selectedAddressHeaderRow}>
+                    <View style={styles.addressBadge}>
+                      {selectedAddress?.label?.toLowerCase() === 'kantor' ? (
+                        <Briefcase size={12} color="#C9A876" style={{ marginRight: 5 }} />
+                      ) : selectedAddress?.isGps ? (
+                        <Navigation size={12} color="#C9A876" style={{ marginRight: 5 }} />
+                      ) : (
+                        <Home size={12} color="#C9A876" style={{ marginRight: 5 }} />
+                      )}
+                      <Text style={styles.addressBadgeText}>
+                        {selectedAddress?.label || 'Alamat Terpilih'}
+                      </Text>
+                    </View>
+
+                    <TouchableOpacity
+                      style={styles.changeAddressBtn}
+                      onPress={() => router.push('/modal/address-picker' as any)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.changeAddressBtnText}>Ganti Alamat</Text>
+                      <ChevronRight size={14} color="#181F4B" />
+                    </TouchableOpacity>
+                  </View>
+
+                  <Text style={styles.selectedAddressText} numberOfLines={2}>
+                    {selectedAddress?.addressText || deliveryAddress}
+                  </Text>
+
+                  {(selectedAddress?.recipientName || selectedAddress?.recipientPhone) && (
+                    <Text style={styles.recipientInfoText}>
+                      Penerima: {selectedAddress.recipientName || 'Pelanggan'}{' '}
+                      {selectedAddress.recipientPhone ? `(${selectedAddress.recipientPhone})` : ''}
+                    </Text>
+                  )}
+
+                  <View style={styles.courierNotesBox}>
+                    <TextInput
+                      style={styles.courierNotesInput}
+                      value={courierNotes}
+                      onChangeText={setCourierNotes}
+                      placeholder="Catatan kurir (opsional: no rumah, patokan, titip satpam)..."
+                      placeholderTextColor="#9AA0A6"
+                    />
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.emptyAddressCard}>
+                  <View style={styles.emptyAddressIconCircle}>
+                    <MapPin size={22} color="#C9A876" />
+                  </View>
+                  <Text style={styles.emptyAddressTitle}>Belum Ada Alamat Pengiriman</Text>
+                  <Text style={styles.emptyAddressSubtitle}>
+                    Tambahkan alamat tujuan pengiriman kamu untuk menghitung estimasi jarak & ongkir secara akurat.
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.addAddressPrimaryBtn}
+                    onPress={() =>
+                      router.push({
+                        pathname: '/profile/add-address' as any,
+                        params: { fromCheckout: 'true' },
+                      })
+                    }
+                    activeOpacity={0.85}
+                  >
+                    <Plus size={16} color="#181F4B" style={{ marginRight: 6 }} />
+                    <Text style={styles.addAddressPrimaryBtnText}>Tambah Alamat Baru</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
 
               {/* Real-time Distance & Fee Quote Badges */}
               {isLoadingDeliveryQuote ? (
@@ -445,7 +573,7 @@ export default function CheckoutScreen() {
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.quoteSuccessDistance}>
-                        Jarak ke {deliveryQuote.outletName || selectedOutlet.name}: {deliveryQuote.distanceKm} km
+                        Jarak ke {deliveryQuote.outletName || selectedOutlet?.name || 'Outlet'}: {deliveryQuote.distanceKm} km
                       </Text>
                       <Text style={styles.quoteSuccessFee}>
                         Ongkir: {formatRupiah(deliveryQuote.deliveryFee)}
@@ -706,7 +834,11 @@ export default function CheckoutScreen() {
             style={{ marginRight: 6 }}
           />
           <Text style={[styles.payNowText, !isDeliverable && styles.payNowTextDisabled]}>
-            {!isDeliverable ? 'Di Luar Jangkauan' : 'Proses Pembayaran'}
+            {fulfillmentType === 'delivery' && !hasValidDeliveryAddress
+              ? 'Pilih Alamat Pengiriman'
+              : !isDeliverable
+              ? 'Di Luar Jangkauan'
+              : 'Proses Pembayaran'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -913,16 +1045,139 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#181F4B',
   },
-  addressInput: {
+  addressLoadingBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#F4F5F9',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 8,
+  },
+  addressLoadingText: {
     fontFamily: 'SourceSans3_400Regular',
     fontSize: 13,
-    color: '#181F4B',
+    color: '#6B7088',
+  },
+  selectedAddressCard: {
+    backgroundColor: '#FAF7F0',
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#E7DEC8',
+    padding: 14,
+    marginBottom: 8,
+  },
+  selectedAddressHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  addressBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#181F4B',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  addressBadgeText: {
+    fontFamily: 'AlbertSans_700Bold',
+    fontSize: 11,
+    color: '#C9A876',
+  },
+  changeAddressBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#E7E8F0',
+    borderColor: '#E7DEC8',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  changeAddressBtnText: {
+    fontFamily: 'SourceSans3_600SemiBold',
+    fontSize: 11,
+    color: '#181F4B',
+    marginRight: 2,
+  },
+  selectedAddressText: {
+    fontFamily: 'SourceSans3_600SemiBold',
+    fontSize: 13,
+    color: '#181F4B',
+    lineHeight: 18,
+  },
+  recipientInfoText: {
+    fontFamily: 'SourceSans3_400Regular',
+    fontSize: 12,
+    color: '#6B7088',
+    marginTop: 4,
+  },
+  courierNotesBox: {
+    marginTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#E7DEC8',
+    paddingTop: 8,
+  },
+  courierNotesInput: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E7DEC8',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    fontFamily: 'SourceSans3_400Regular',
+    fontSize: 12,
+    color: '#181F4B',
+  },
+  emptyAddressCard: {
+    backgroundColor: '#FAF7F0',
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#E7DEC8',
+    padding: 16,
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  emptyAddressIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E7DEC8',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  emptyAddressTitle: {
+    fontFamily: 'AlbertSans_700Bold',
+    fontSize: 14,
+    color: '#181F4B',
+    marginBottom: 4,
+  },
+  emptyAddressSubtitle: {
+    fontFamily: 'SourceSans3_400Regular',
+    fontSize: 12,
+    color: '#6B7088',
+    textAlign: 'center',
+    lineHeight: 16,
+    marginBottom: 12,
+    paddingHorizontal: 12,
+  },
+  addAddressPrimaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#C9A876',
+    borderRadius: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+  },
+  addAddressPrimaryBtnText: {
+    fontFamily: 'SourceSans3_700Bold',
+    fontSize: 13,
+    color: '#181F4B',
   },
   quoteLoadingBox: {
     flexDirection: 'row',

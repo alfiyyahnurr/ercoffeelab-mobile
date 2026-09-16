@@ -35,6 +35,7 @@ import { useCart } from '@/lib/cart-store';
 import { getToken } from '@/lib/auth-store';
 import { mobileApiFetch } from '@/lib/api-client';
 import { useOutlet } from '@/lib/outlet-store';
+import { calculateHaversineDistance, forwardGeocodeAddress } from '@/lib/location-service';
 
 interface DeliveryQuoteResult {
   isDeliverable: boolean;
@@ -115,6 +116,37 @@ export default function CheckoutScreen() {
     }
   }, [savedAddresses, selectedAddress]);
 
+  // Auto-resolve missing coordinates for legacy saved addresses with null latitude/longitude
+  useEffect(() => {
+    let isMounted = true;
+    async function resolveCoordsIfNeeded() {
+      if (
+        selectedAddress?.addressText &&
+        (selectedAddress.latitude === undefined ||
+          selectedAddress.latitude === null ||
+          selectedAddress.longitude === undefined ||
+          selectedAddress.longitude === null)
+      ) {
+        try {
+          const resolved = await forwardGeocodeAddress(selectedAddress.addressText);
+          if (resolved && isMounted) {
+            setSelectedAddress({
+              ...selectedAddress,
+              latitude: resolved.latitude,
+              longitude: resolved.longitude,
+            });
+          }
+        } catch (e) {
+          console.warn('[checkout] Auto-resolve coords error:', e);
+        }
+      }
+    }
+    resolveCoordsIfNeeded();
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedAddress]);
+
   // Voucher states
   const [voucherCodeInput, setVoucherCodeInput] = useState<string>('');
   const [appliedVoucher, setAppliedVoucher] = useState<{
@@ -137,10 +169,20 @@ export default function CheckoutScreen() {
   const [pinError, setPinError] = useState<string | null>(null);
   const pinInputRefs = useRef<(TextInput | null)[]>([]);
 
-  // Delivery Quote based on customer coordinates and outlet
-  const targetLat = selectedAddress?.latitude ?? -6.9344;
-  const targetLng = selectedAddress?.longitude ?? 107.6871;
+  // Delivery Quote & Coordinates
+  const outletLat = selectedOutlet?.latitude ?? -6.9175;
+  const outletLng = selectedOutlet?.longitude ?? 107.6191;
+  const targetLat = selectedAddress?.latitude ?? -6.8722;
+  const targetLng = selectedAddress?.longitude ?? 107.5420;
   const outletId = selectedOutlet?.id || 1;
+
+  // Immediate Client-Side Haversine Distance (km)
+  const clientDistanceKm = calculateHaversineDistance(
+    targetLat,
+    targetLng,
+    outletLat,
+    outletLng
+  );
 
   const hasAddresses = Boolean(
     (savedAddresses && savedAddresses.length > 0) ||
@@ -159,12 +201,17 @@ export default function CheckoutScreen() {
           `/api/delivery/calculate?outletId=${outletId}&latitude=${targetLat}&longitude=${targetLng}`
         );
       } catch (err: any) {
+        const isDeliverableFallback = clientDistanceKm <= 10;
+        const feeFallback = clientDistanceKm <= 5 ? 10000 : 15000;
         return {
-          isDeliverable: true,
-          distanceKm: 0,
-          deliveryFee: 10000,
+          isDeliverable: isDeliverableFallback,
+          distanceKm: clientDistanceKm,
+          deliveryFee: isDeliverableFallback ? feeFallback : 0,
           maxDistanceKm: 10,
-          message: 'Menggunakan tarif standar',
+          outletName: selectedOutlet?.name || 'ER Coffee Lab',
+          message: isDeliverableFallback
+            ? `Ongkos kirim (${clientDistanceKm} km): Rp ${feeFallback.toLocaleString('id-ID')}`
+            : `Alamat di luar jangkauan (Jarak: ${clientDistanceKm} km, Maksimal: 10 km)`,
         };
       }
     },

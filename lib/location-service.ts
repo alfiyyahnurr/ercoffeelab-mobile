@@ -310,3 +310,27 @@ export function findNearestOutlet<T extends { latitude?: number | null; longitud
 
   return { outlet: closestOutlet, distanceKm: minDistance };
 }
+
+/**
+ * Forward-geocode address text into { latitude, longitude } with OpenStreetMap Nominatim + Photon Komoot fallback.
+ */
+export async function forwardGeocodeAddress(
+  addressText: string
+): Promise<UserCoordinates | null> {
+  if (!addressText || addressText.trim().length < 3) return null;
+
+  try {
+    const results = await searchLocationApi(addressText.trim());
+    if (results && results.length > 0) {
+      return {
+        latitude: results[0].latitude,
+        longitude: results[0].longitude,
+      };
+    }
+  } catch (err) {
+    console.warn('[location-service] forwardGeocodeAddress error:', err);
+  }
+
+  return null;
+}
+

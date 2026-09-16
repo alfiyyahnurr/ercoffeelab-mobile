@@ -25,6 +25,7 @@ import {
   getCurrentUserLocation,
   reverseGeocodeAddress,
   calculateHaversineDistance,
+  forwardGeocodeAddress,
 } from '@/lib/location-service';
 
 export default function AddressPickerModal() {
@@ -70,7 +71,18 @@ export default function AddressPickerModal() {
   });
 
   const handleSelectAddress = async (addr: DeliveryAddress) => {
-    await setSelectedAddress(addr);
+    let finalAddr = { ...addr };
+    if ((!finalAddr.latitude || !finalAddr.longitude) && finalAddr.addressText) {
+      try {
+        const resolved = await forwardGeocodeAddress(finalAddr.addressText);
+        if (resolved) {
+          finalAddr.latitude = resolved.latitude;
+          finalAddr.longitude = resolved.longitude;
+        }
+      } catch {}
+    }
+
+    await setSelectedAddress(finalAddr);
     if (router.canGoBack()) {
       router.back();
     } else {

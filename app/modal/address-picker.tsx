@@ -24,14 +24,19 @@ import { mobileApiFetch } from '@/lib/api-client';
 import {
   getCurrentUserLocation,
   reverseGeocodeAddress,
+  calculateHaversineDistance,
 } from '@/lib/location-service';
 
 export default function AddressPickerModal() {
   const router = useRouter();
-  const { selectedAddress, setSelectedAddress } = useOutlet();
+  const { selectedAddress, setSelectedAddress, selectedOutlet } = useOutlet();
 
   const [detectingGps, setDetectingGps] = useState(false);
   const [gpsAddress, setGpsAddress] = useState<string>('Mendeteksi lokasi GPS...');
+  const [gpsCoords, setGpsCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+
+  const outletLat = selectedOutlet?.latitude ?? -6.9175;
+  const outletLng = selectedOutlet?.longitude ?? 107.6191;
 
   // Auto-detect real-time GPS location on modal mount
   useEffect(() => {
@@ -39,6 +44,7 @@ export default function AddressPickerModal() {
       setDetectingGps(true);
       try {
         const coords = await getCurrentUserLocation();
+        setGpsCoords(coords);
         const geo = await reverseGeocodeAddress(coords.latitude, coords.longitude);
         setGpsAddress(geo.fullAddress);
       } catch {
@@ -80,6 +86,9 @@ export default function AddressPickerModal() {
   };
 
   const isGpsSelected = selectedAddress.isGps;
+  const gpsDistanceKm = gpsCoords
+    ? calculateHaversineDistance(gpsCoords.latitude, gpsCoords.longitude, outletLat, outletLng)
+    : null;
 
   return (
     <View style={styles.container}>
@@ -103,6 +112,8 @@ export default function AddressPickerModal() {
               label: 'Lokasi GPS Terkini',
               addressText: gpsAddress,
               isGps: true,
+              latitude: gpsCoords?.latitude,
+              longitude: gpsCoords?.longitude,
             })
           }
           activeOpacity={0.85}
@@ -115,6 +126,10 @@ export default function AddressPickerModal() {
               <Text style={styles.gpsLabelText}>Lokasi Saat Ini (GPS)</Text>
               {detectingGps ? (
                 <ActivityIndicator size="small" color="#181F4B" style={{ marginLeft: 6 }} />
+              ) : gpsDistanceKm !== null ? (
+                <View style={styles.distanceBadgeChip}>
+                  <Text style={styles.distanceBadgeText}>{gpsDistanceKm} km ke outlet</Text>
+                </View>
               ) : null}
             </View>
             <Text style={styles.addressSubText} numberOfLines={2}>
@@ -131,6 +146,13 @@ export default function AddressPickerModal() {
         ) : savedAddresses && savedAddresses.length > 0 ? (
           savedAddresses.map((item: any) => {
             const isSelected = !isGpsSelected && selectedAddress.id === item.id;
+            const itemLat = item.latitude ? Number(item.latitude) : null;
+            const itemLng = item.longitude ? Number(item.longitude) : null;
+            const itemDistance =
+              itemLat !== null && itemLng !== null
+                ? calculateHaversineDistance(itemLat, itemLng, outletLat, outletLng)
+                : null;
+
             return (
               <TouchableOpacity
                 key={item.id}
@@ -142,6 +164,8 @@ export default function AddressPickerModal() {
                     addressText: item.addressText,
                     recipientName: item.recipientName,
                     recipientPhone: item.recipientPhone,
+                    latitude: itemLat ?? undefined,
+                    longitude: itemLng ?? undefined,
                     isGps: false,
                   })
                 }
@@ -155,7 +179,14 @@ export default function AddressPickerModal() {
                   )}
                 </View>
                 <View style={styles.cardTextWrapper}>
-                  <Text style={styles.addressLabelTitle}>{item.label || 'Alamat'}</Text>
+                  <View style={styles.badgeRow}>
+                    <Text style={styles.addressLabelTitle}>{item.label || 'Alamat'}</Text>
+                    {itemDistance !== null ? (
+                      <View style={styles.distanceBadgeChip}>
+                        <Text style={styles.distanceBadgeText}>{itemDistance} km</Text>
+                      </View>
+                    ) : null}
+                  </View>
                   <Text style={styles.addressSubText} numberOfLines={2}>
                     {item.addressText}
                   </Text>
@@ -258,6 +289,20 @@ const styles = StyleSheet.create({
   badgeRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  distanceBadgeChip: {
+    backgroundColor: '#F3EFE6',
+    borderWidth: 1,
+    borderColor: '#E7DEC8',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  distanceBadgeText: {
+    fontFamily: 'SourceSans3_600SemiBold',
+    fontSize: 10,
+    color: '#9E7B4F',
   },
   gpsLabelText: {
     fontFamily: 'AlbertSans_700Bold',

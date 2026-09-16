@@ -21,18 +21,21 @@ import {
 } from 'lucide-react-native';
 
 import { mobileApiFetch } from '@/lib/api-client';
+import { useOutlet } from '@/lib/outlet-store';
 import {
   getCurrentUserLocation,
   reverseGeocodeAddress,
   searchLocationApi,
   DEFAULT_COORDINATES,
   SearchLocationResult,
+  calculateHaversineDistance,
 } from '@/lib/location-service';
 import { InteractiveMapPicker } from '@/components/InteractiveMapPicker';
 import { useQueryClient } from '@tanstack/react-query';
 
 export default function AddAddressScreen() {
   const router = useRouter();
+  const { selectedOutlet } = useOutlet();
   const params = useLocalSearchParams<{
     id?: string;
     label?: string;
@@ -322,6 +325,54 @@ export default function AddAddressScreen() {
           isLoading={detectingGps || isGeocodingPin}
           height={220}
         />
+
+        {/* Real-time Delivery Distance & Estimated Ongkir Calculator Card */}
+        {(() => {
+          const outletLat = selectedOutlet?.latitude ?? -6.9175;
+          const outletLng = selectedOutlet?.longitude ?? 107.6191;
+          const distanceKm = calculateHaversineDistance(
+            userCoords.latitude,
+            userCoords.longitude,
+            outletLat,
+            outletLng
+          );
+          const isDeliverable = distanceKm <= 10.0;
+          const estimatedOngkir = distanceKm <= 5.0 ? 10000 : 15000;
+
+          return (
+            <View
+              style={[
+                styles.distanceCalcCard,
+                !isDeliverable && styles.distanceCalcCardOutOfRange,
+              ]}
+            >
+              <View
+                style={[
+                  styles.distanceIconBadge,
+                  !isDeliverable && styles.distanceIconBadgeOutOfRange,
+                ]}
+              >
+                <Navigation size={15} color={isDeliverable ? '#181F4B' : '#C9576B'} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.distanceOutletLabel}>
+                  Jarak ke {selectedOutlet?.name || 'ER Coffee Lab Bandung'}
+                </Text>
+                <Text
+                  style={[
+                    styles.distanceResultText,
+                    !isDeliverable && styles.distanceResultTextOutOfRange,
+                  ]}
+                >
+                  {distanceKm} km •{' '}
+                  {isDeliverable
+                    ? `Estimasi Ongkir: Rp ${estimatedOngkir.toLocaleString('id-ID')}`
+                    : 'Di Luar Radius Delivery (> 10 km)'}
+                </Text>
+              </View>
+            </View>
+          );
+        })()}
 
         {/* Section 1: Detail Alamat */}
         <View style={styles.sectionGroup}>
@@ -677,6 +728,46 @@ const styles = StyleSheet.create({
   errorText: {
     fontFamily: 'SourceSans3_400Regular',
     fontSize: 13,
+    color: '#C9576B',
+  },
+  distanceCalcCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F7F3EA',
+    borderWidth: 1.5,
+    borderColor: '#E7DEC8',
+    borderRadius: 16,
+    padding: 12,
+    marginBottom: 16,
+  },
+  distanceCalcCardOutOfRange: {
+    backgroundColor: '#FDF0F2',
+    borderColor: '#FAD4DB',
+  },
+  distanceIconBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  distanceIconBadgeOutOfRange: {
+    backgroundColor: '#FFFFFF',
+  },
+  distanceOutletLabel: {
+    fontFamily: 'AlbertSans_700Bold',
+    fontSize: 13,
+    color: '#181F4B',
+  },
+  distanceResultText: {
+    fontFamily: 'SourceSans3_600SemiBold',
+    fontSize: 12,
+    color: '#9E7B4F',
+    marginTop: 2,
+  },
+  distanceResultTextOutOfRange: {
     color: '#C9576B',
   },
   bottomFooter: {

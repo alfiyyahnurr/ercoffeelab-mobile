@@ -32,6 +32,8 @@ interface SavedAddressItem {
   recipientName: string;
   recipientPhone: string;
   isPrimary?: boolean;
+  latitude?: number | null;
+  longitude?: number | null;
 }
 
 export default function SavedAddressesScreen() {
@@ -103,6 +105,8 @@ export default function SavedAddressesScreen() {
         detailNotes: item.detailNotes || '',
         recipientName: item.recipientName,
         recipientPhone: item.recipientPhone,
+        latitude: item.latitude ? String(item.latitude) : undefined,
+        longitude: item.longitude ? String(item.longitude) : undefined,
       },
     } as any);
   };

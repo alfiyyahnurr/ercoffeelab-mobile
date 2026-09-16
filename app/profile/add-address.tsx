@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,7 +10,6 @@ import {
   Platform,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { WebView } from 'react-native-webview';
 import {
   ArrowLeft,
   Search,
@@ -27,7 +26,9 @@ import {
   reverseGeocodeAddress,
   searchLocationApi,
   DEFAULT_COORDINATES,
+  SearchLocationResult,
 } from '@/lib/location-service';
+import { InteractiveMapPicker } from '@/components/InteractiveMapPicker';
 import { useQueryClient } from '@tanstack/react-query';
 
 export default function AddAddressScreen() {
@@ -39,6 +40,8 @@ export default function AddAddressScreen() {
     detailNotes?: string;
     recipientName?: string;
     recipientPhone?: string;
+    latitude?: string;
+    longitude?: string;
   }>();
   const queryClient = useQueryClient();
 
@@ -58,11 +61,14 @@ export default function AddAddressScreen() {
   );
 
   const [searchLocation, setSearchLocation] = useState('');
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchResults, setSearchResults] = useState<SearchLocationResult[]>([]);
   const [searching, setSearching] = useState(false);
+  const searchAbortRef = useRef<AbortController | null>(null);
+  const searchTimerRef = useRef<any>(null);
 
   const [submitting, setSubmitting] = useState(false);
   const [detectingGps, setDetectingGps] = useState(false);
+  const [isGeocodingPin, setIsGeocodingPin] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Populate state when opening in Edit mode
@@ -72,6 +78,13 @@ export default function AddAddressScreen() {
     if (params.detailNotes !== undefined) setAddressDetail(params.detailNotes);
     if (params.recipientName) setRecipientName(params.recipientName);
     if (params.recipientPhone) setRecipientPhone(params.recipientPhone);
+    if (params.latitude && params.longitude) {
+      const lat = parseFloat(params.latitude);
+      const lng = parseFloat(params.longitude);
+      if (!isNaN(lat) && !isNaN(lng)) {
+        setUserCoords({ latitude: lat, longitude: lng });
+      }
+    }
   }, [params]);
 
   // Auto-detect real-time GPS location on mount if creating new address
@@ -94,31 +107,59 @@ export default function AddAddressScreen() {
     }
   }, [isEditMode]);
 
-  const handleSearchQueryChange = async (text: string) => {
+  // Debounced search with AbortController to prevent rate limiting and race conditions
+  const handleSearchQueryChange = (text: string) => {
     setSearchLocation(text);
-    if (text.trim().length >= 3) {
+
+    if (searchTimerRef.current) {
+      clearTimeout(searchTimerRef.current);
+    }
+    if (searchAbortRef.current) {
+      searchAbortRef.current.abort();
+    }
+
+    if (text.trim().length >= 2) {
       setSearching(true);
-      try {
-        const data = await searchLocationApi(text);
-        setSearchResults(data);
-      } catch {
-        setSearchResults([]);
-      } finally {
-        setSearching(false);
-      }
+      searchTimerRef.current = setTimeout(async () => {
+        const abortCtrl = new AbortController();
+        searchAbortRef.current = abortCtrl;
+        try {
+          const data = await searchLocationApi(text, abortCtrl.signal);
+          setSearchResults(data);
+        } catch (err: any) {
+          if (err?.name !== 'AbortError') {
+            setSearchResults([]);
+          }
+        } finally {
+          setSearching(false);
+        }
+      }, 400);
     } else {
       setSearchResults([]);
+      setSearching(false);
     }
   };
 
-  const handleSelectSearchResult = async (item: any) => {
-    const lat = parseFloat(item.lat);
-    const lon = parseFloat(item.lon);
-    setUserCoords({ latitude: lat, longitude: lon });
-    const displayName = item.display_name || '';
-    setFullAddressText(displayName);
+  const handleSelectSearchResult = (item: SearchLocationResult) => {
+    setUserCoords({ latitude: item.latitude, longitude: item.longitude });
+    const fullText = item.subtitle ? `${item.title}, ${item.subtitle}` : item.title;
+    setFullAddressText(fullText);
     setSearchLocation('');
     setSearchResults([]);
+  };
+
+  // Called when pin is dragged or map is tapped
+  const handleLocationFromMap = async (lat: number, lng: number) => {
+    setUserCoords({ latitude: lat, longitude: lng });
+    setIsGeocodingPin(true);
+    try {
+      const geo = await reverseGeocodeAddress(lat, lng);
+      setFullAddressText(geo.fullAddress);
+    } catch {
+      // Keep existing
+    } finally {
+      setIsGeocodingPin(false);
+    }
   };
 
   const handleUseCurrentGps = async () => {
@@ -161,6 +202,8 @@ export default function AddAddressScreen() {
       detailNotes: addressDetail.trim() || undefined,
       recipientName: recipientName.trim(),
       recipientPhone: recipientPhone.trim(),
+      latitude: userCoords.latitude,
+      longitude: userCoords.longitude,
     };
 
     try {
@@ -232,9 +275,9 @@ export default function AddAddressScreen() {
           {/* Search Dropdown Results */}
           {searchResults.length > 0 && (
             <View style={styles.searchResultsDropdown}>
-              {searchResults.map((item, idx) => (
+              {searchResults.map((item) => (
                 <TouchableOpacity
-                  key={idx}
+                  key={item.id}
                   style={styles.searchResultItem}
                   onPress={() => handleSelectSearchResult(item)}
                   activeOpacity={0.8}
@@ -242,10 +285,10 @@ export default function AddAddressScreen() {
                   <MapPin size={16} color="#181F4B" style={{ marginRight: 10, marginTop: 2 }} />
                   <View style={{ flex: 1 }}>
                     <Text style={styles.resultItemTitle} numberOfLines={1}>
-                      {item.display_name.split(',')[0]}
+                      {item.title}
                     </Text>
-                    <Text style={styles.resultItemSub} numberOfLines={1}>
-                      {item.display_name}
+                    <Text style={styles.resultItemSub} numberOfLines={2}>
+                      {item.subtitle}
                     </Text>
                   </View>
                 </TouchableOpacity>
@@ -271,29 +314,14 @@ export default function AddAddressScreen() {
           </Text>
         </TouchableOpacity>
 
-        {/* High Precision Interactive Map Box (CartoDB / OpenStreetMap View) */}
-        <View style={styles.mapContainer}>
-          {Platform.OS === 'web' ? (
-            <iframe
-              src={`https://www.openstreetmap.org/export/embed.html?bbox=${userCoords.longitude - 0.008},${userCoords.latitude - 0.005},${userCoords.longitude + 0.008},${userCoords.latitude + 0.005}&layer=mapnik&marker=${userCoords.latitude},${userCoords.longitude}`}
-              style={{ width: '100%', height: 200, border: 'none', borderRadius: 20 }}
-            />
-          ) : (
-            <WebView
-              originWhitelist={['*']}
-              source={{
-                uri: `https://www.openstreetmap.org/export/embed.html?bbox=${userCoords.longitude - 0.008},${userCoords.latitude - 0.005},${userCoords.longitude + 0.008},${userCoords.latitude + 0.005}&layer=mapnik&marker=${userCoords.latitude},${userCoords.longitude}`,
-              }}
-              style={{ width: '100%', height: 200, borderRadius: 20 }}
-            />
-          )}
-          {detectingGps && (
-            <View style={styles.mapLoadingOverlay}>
-              <ActivityIndicator color="#C9A876" size="small" />
-              <Text style={styles.mapLoadingText}>Mendeteksi Lokasi GPS...</Text>
-            </View>
-          )}
-        </View>
+        {/* Interactive OpenStreetMap Map Location Picker */}
+        <InteractiveMapPicker
+          latitude={userCoords.latitude}
+          longitude={userCoords.longitude}
+          onLocationSelect={handleLocationFromMap}
+          isLoading={detectingGps || isGeocodingPin}
+          height={220}
+        />
 
         {/* Section 1: Detail Alamat */}
         <View style={styles.sectionGroup}>

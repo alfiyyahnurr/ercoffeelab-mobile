@@ -2,20 +2,46 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import { getToken } from './auth-store';
 
+const DEFAULT_PRODUCTION_API_URL = 'https://ercoffeelab-api.vercel.app';
+
 /**
- * Dynamically resolves the API base URL.
- * Automatically extracts the Metro host IP on physical mobile devices / Expo Go
- * to avoid connection failures on localhost.
+ * Dynamically resolves the API base URL with smart production auto-detection.
+ * 1. Checks process.env.EXPO_PUBLIC_API_URL
+ * 2. If running in web browser on a production domain (e.g. *.vercel.app),
+ *    automatically routes to the deployed production API (https://ercoffeelab-api.vercel.app).
+ * 3. On physical mobile devices / Expo Go, extracts the Metro LAN IP.
+ * 4. Fallbacks to http://localhost:3000 for local development.
  */
 export function getApiBaseUrl(): string {
-  const envUrl = process.env.EXPO_PUBLIC_API_URL;
-  if (envUrl && envUrl.trim().length > 0) {
-    return envUrl.trim();
+  const envUrl = process.env.EXPO_PUBLIC_API_URL?.trim();
+
+  // If on web browser
+  if (Platform.OS === 'web') {
+    if (typeof window !== 'undefined' && window.location) {
+      const hostname = window.location.hostname;
+      const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0';
+
+      // If running on a live web deployment (e.g. *.vercel.app or production domain)
+      if (!isLocalhost) {
+        // If envUrl is explicitly provided and does NOT point to localhost, use it
+        if (envUrl && !envUrl.includes('localhost') && !envUrl.includes('127.0.0.1')) {
+          return envUrl.replace(/\/+$/, '');
+        }
+        // Otherwise, automatically default to the deployed Vercel backend API
+        return DEFAULT_PRODUCTION_API_URL;
+      }
+    }
+
+    if (envUrl && envUrl.length > 0) {
+      return envUrl.replace(/\/+$/, '');
+    }
+
+    return 'http://localhost:3000';
   }
 
-  // On web browser fallback to localhost:3000
-  if (Platform.OS === 'web') {
-    return 'http://localhost:3000';
+  // Native / Mobile OS
+  if (envUrl && envUrl.length > 0) {
+    return envUrl.replace(/\/+$/, '');
   }
 
   // On physical mobile device or Expo Go, deduce host IP from Expo Constants

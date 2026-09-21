@@ -28,9 +28,16 @@ export default function PaymentWebViewModal() {
   const [loading, setLoading] = useState<boolean>(true);
   const [simulating, setSimulating] = useState<boolean>(false);
 
-  const handleFinishPayment = () => {
-    // Navigate to Pesanan / Order Tracking Screen
+  const handleFinishPayment = async () => {
     if (orderId) {
+      try {
+        await mobileApiFetch('/api/payments/midtrans/check-status', {
+          method: 'POST',
+          body: JSON.stringify({ orderId }),
+        });
+      } catch {
+        // Ignored
+      }
       router.replace(`/(main)/orders/${orderId}` as any);
     } else {
       router.replace('/(main)/orders' as any);

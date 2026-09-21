@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,9 +8,10 @@ import {
   ActivityIndicator,
   Linking,
   Platform,
+  Alert,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
   CheckCircle2,
@@ -24,6 +25,7 @@ import {
   Truck,
   ChevronRight,
   XCircle,
+  RefreshCw,
 } from 'lucide-react-native';
 
 import { mobileApiFetch } from '@/lib/api-client';
@@ -31,6 +33,7 @@ import { Order, OrderItem } from '@/types/api';
 
 export default function OrderTrackingScreen() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const params = useLocalSearchParams<{ id?: string }>();
   const orderId = params.id && params.id !== 'index' ? params.id : '1';
 
@@ -45,12 +48,64 @@ export default function OrderTrackingScreen() {
         return null;
       }
     },
-    refetchInterval: 5000, // Poll every 5s while active
+    refetchInterval: 5000,
   });
 
   const order = orderData;
   const [loadingPayment, setLoadingPayment] = useState<boolean>(false);
   const [simulatingPayment, setSimulatingPayment] = useState<boolean>(false);
+  const [checkingPayment, setCheckingPayment] = useState<boolean>(false);
+
+  // Auto-sync status from Midtrans in background when screen loads with unpaid order
+  useEffect(() => {
+    if (order && order.paymentStatus === 'unpaid' && order.orderStatus !== 'cancelled') {
+      handleCheckPaymentStatus(true);
+    }
+  }, [order?.id, order?.paymentStatus]);
+
+  const handleCheckPaymentStatus = async (silent = false) => {
+    if (!order || checkingPayment) return;
+
+    setCheckingPayment(true);
+    try {
+      const res = await mobileApiFetch<{
+        status: string;
+        paid: boolean;
+        paymentStatus?: string;
+        message?: string;
+      }>('/api/payments/midtrans/check-status', {
+        method: 'POST',
+        body: JSON.stringify({ orderId: order.id }),
+      });
+
+      await queryClient.invalidateQueries({ queryKey: ['order-detail', orderId] });
+
+      if (res?.paid) {
+        if (!silent) {
+          Alert.alert(
+            'Pembayaran Berhasil!',
+            'Pembayaran Anda telah terverifikasi. Pesanan sedang disiapkan barista.'
+          );
+        }
+      } else {
+        if (!silent) {
+          Alert.alert(
+            'Status Pembayaran',
+            res?.message || 'Pesanan masih menunggu pembayaran. Silakan selesaikan pembayaran di Midtrans.'
+          );
+        }
+      }
+    } catch (err: any) {
+      if (!silent) {
+        Alert.alert(
+          'Gagal Cek Status',
+          err?.message || 'Terjadi kesalahan saat memeriksa status pembayaran.'
+        );
+      }
+    } finally {
+      setCheckingPayment(false);
+    }
+  };
 
   const handleBack = () => {
     if (router.canGoBack()) {
@@ -300,7 +355,7 @@ export default function OrderTrackingScreen() {
                 <TouchableOpacity
                   style={styles.continuePaymentBtn}
                   onPress={handleContinuePayment}
-                  disabled={loadingPayment}
+                  disabled={loadingPayment || checkingPayment}
                   activeOpacity={0.85}
                 >
                   {loadingPayment ? (
@@ -313,11 +368,28 @@ export default function OrderTrackingScreen() {
                   </Text>
                 </TouchableOpacity>
 
+                {/* Check Real-time Midtrans Status button */}
+                <TouchableOpacity
+                  style={styles.checkStatusBtn}
+                  onPress={() => handleCheckPaymentStatus(false)}
+                  disabled={checkingPayment || loadingPayment}
+                  activeOpacity={0.8}
+                >
+                  {checkingPayment ? (
+                    <ActivityIndicator size="small" color="#181F4B" style={{ marginRight: 6 }} />
+                  ) : (
+                    <RefreshCw size={15} color="#181F4B" style={{ marginRight: 6 }} />
+                  )}
+                  <Text style={styles.checkStatusBtnText}>
+                    {checkingPayment ? 'Memeriksa ke Midtrans...' : '🔄 Cek Status Pembayaran (Sudah Bayar)'}
+                  </Text>
+                </TouchableOpacity>
+
                 {/* Dev simulation button */}
                 <TouchableOpacity
                   style={styles.simPaymentBtn}
                   onPress={handleSimulatePayment}
-                  disabled={simulatingPayment}
+                  disabled={simulatingPayment || checkingPayment}
                   activeOpacity={0.8}
                 >
                   <CheckCircle2 size={15} color="#181F4B" style={{ marginRight: 6 }} />
@@ -561,6 +633,22 @@ const styles = StyleSheet.create({
     fontFamily: 'SourceSans3_700Bold',
     fontSize: 14,
     color: '#FFFFFF',
+  },
+  checkStatusBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FAF5EA',
+    borderWidth: 1.5,
+    borderColor: '#C9A876',
+    height: 44,
+    borderRadius: 22,
+    marginBottom: 8,
+  },
+  checkStatusBtnText: {
+    fontFamily: 'SourceSans3_700Bold',
+    fontSize: 13,
+    color: '#181F4B',
   },
   simPaymentBtn: {
     flexDirection: 'row',

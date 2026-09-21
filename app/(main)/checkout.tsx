@@ -228,8 +228,9 @@ export default function CheckoutScreen() {
         ? deliveryQuote.deliveryFee
         : 10000
       : 0;
+  const serviceFee = items.length > 0 ? 2000 : 0;
   const discountAmount = appliedVoucher ? appliedVoucher.discount : 0;
-  const grandTotal = Math.max(0, totalAmount - discountAmount + (isDeliverable ? deliveryFee : 0));
+  const grandTotal = Math.max(0, totalAmount - discountAmount + serviceFee + (isDeliverable ? deliveryFee : 0));
 
   // Fetch active payment methods from API
   const { data: paymentMethodsData } = useQuery({
@@ -811,6 +812,13 @@ export default function CheckoutScreen() {
 
             <Text style={styles.summaryValue}>{formatRupiah(totalAmount)}</Text>
           </View>
+
+          {serviceFee > 0 && (
+            <View style={[styles.summaryRow, { marginTop: 8 }]}>
+              <Text style={styles.summaryLabel}>Biaya Layanan</Text>
+              <Text style={styles.summaryValue}>{formatRupiah(serviceFee)}</Text>
+            </View>
+          )}
 
           {fulfillmentType === 'delivery' && (
             <View style={[styles.summaryRow, { marginTop: 8 }]}>

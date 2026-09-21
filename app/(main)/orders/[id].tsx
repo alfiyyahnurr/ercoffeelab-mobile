@@ -49,6 +49,8 @@ export default function OrderTrackingScreen() {
   });
 
   const order = orderData;
+  const [loadingPayment, setLoadingPayment] = useState<boolean>(false);
+  const [simulatingPayment, setSimulatingPayment] = useState<boolean>(false);
 
   const handleBack = () => {
     if (router.canGoBack()) {
@@ -63,6 +65,58 @@ export default function OrderTrackingScreen() {
     const message = `Halo ER Coffee Lab, saya ingin menanyakan status pesanan nomor #${order?.orderNumber || orderId}.`;
     const url = `https://wa.me/${outletPhone}?text=${encodeURIComponent(message)}`;
     Linking.openURL(url).catch(() => {});
+  };
+
+  const handleContinuePayment = async () => {
+    if (!order || loadingPayment) return;
+
+    setLoadingPayment(true);
+    try {
+      const res = await mobileApiFetch<{ snapToken: string; redirectUrl?: string }>(
+        '/api/payments/midtrans/charge',
+        {
+          method: 'POST',
+          body: JSON.stringify({ orderId: order.id }),
+        }
+      );
+
+      if (res?.snapToken) {
+        router.push({
+          pathname: '/modal/payment-webview',
+          params: {
+            orderId: String(order.id),
+            orderNumber: order.orderNumber || `ERC-ORD-${order.id}`,
+            snapToken: res.snapToken,
+            redirectUrl: res.redirectUrl || '',
+          },
+        } as any);
+      } else {
+        alert('Gagal mendapatkan token pembayaran. Silakan coba kembali.');
+      }
+    } catch (err: any) {
+      alert(err?.message || 'Gagal memproses pembayaran. Silakan coba beberapa saat lagi.');
+    } finally {
+      setLoadingPayment(false);
+    }
+  };
+
+  const handleSimulatePayment = async () => {
+    if (!order || simulatingPayment) return;
+
+    setSimulatingPayment(true);
+    try {
+      await mobileApiFetch('/api/payments/midtrans/simulate', {
+        method: 'POST',
+        body: JSON.stringify({
+          orderId: String(order.id),
+          result: 'success',
+        }),
+      });
+    } catch {
+      // Ignored
+    } finally {
+      setSimulatingPayment(false);
+    }
   };
 
   const formatRupiah = (val: number) => {
@@ -230,6 +284,50 @@ export default function OrderTrackingScreen() {
               </View>
             )}
 
+            {/* Pending Payment Call to Action Banner (If still unpaid) */}
+            {!isCancelled && order.paymentStatus !== 'paid' && (
+              <View style={styles.pendingPaymentCard}>
+                <View style={styles.pendingHeaderRow}>
+                  <Clock size={20} color="#C9A876" style={{ marginRight: 8 }} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.pendingTitle}>Menunggu Pembayaran</Text>
+                    <Text style={styles.pendingSubText}>
+                      Pesanan belum dibayar. Selesaikan pembayaran agar pesanan segera dibuat oleh barista.
+                    </Text>
+                  </View>
+                </View>
+
+                <TouchableOpacity
+                  style={styles.continuePaymentBtn}
+                  onPress={handleContinuePayment}
+                  disabled={loadingPayment}
+                  activeOpacity={0.85}
+                >
+                  {loadingPayment ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" style={{ marginRight: 8 }} />
+                  ) : (
+                    <CreditCard size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
+                  )}
+                  <Text style={styles.continuePaymentBtnText}>
+                    {loadingPayment ? 'Menghubungkan Midtrans...' : `Lanjutkan Pembayaran (${formatRupiah(order.total)})`}
+                  </Text>
+                </TouchableOpacity>
+
+                {/* Dev simulation button */}
+                <TouchableOpacity
+                  style={styles.simPaymentBtn}
+                  onPress={handleSimulatePayment}
+                  disabled={simulatingPayment}
+                  activeOpacity={0.8}
+                >
+                  <CheckCircle2 size={15} color="#181F4B" style={{ marginRight: 6 }} />
+                  <Text style={styles.simPaymentBtnText}>
+                    {simulatingPayment ? 'Memproses Simulasi...' : 'Simulasi Bayar Lunas (Dev)'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
             {/* Outlet Info & Contact Button Card */}
             <View style={styles.outletCard}>
               <View style={styles.outletHeaderRow}>
@@ -283,17 +381,35 @@ export default function OrderTrackingScreen() {
               <View style={styles.divider} />
 
               <View style={styles.costRow}>
-                <Text style={styles.costLabel}>Subtotal</Text>
+                <Text style={styles.costLabel}>Subtotal Menu</Text>
                 <Text style={styles.costValue}>{formatRupiah(order.subtotal || order.total)}</Text>
               </View>
+
+              {(order.fulfillmentType === 'delivery' || (order.deliveryFee ?? 0) > 0) && (
+                <View style={styles.costRow}>
+                  <Text style={styles.costLabel}>
+                    Ongkos Kirim (Delivery){order.deliveryDistanceKm ? ` [${order.deliveryDistanceKm} km]` : ''}
+                  </Text>
+                  <Text style={styles.costValue}>{formatRupiah(order.deliveryFee || 0)}</Text>
+                </View>
+              )}
+
+              {(order.serviceFee ?? 0) > 0 && (
+                <View style={styles.costRow}>
+                  <Text style={styles.costLabel}>Biaya Layanan</Text>
+                  <Text style={styles.costValue}>{formatRupiah(order.serviceFee || 0)}</Text>
+                </View>
+              )}
+
               {order.discount ? (
                 <View style={styles.costRow}>
                   <Text style={styles.costLabelDiscount}>Diskon Voucher</Text>
                   <Text style={styles.costValueDiscount}>-{formatRupiah(order.discount)}</Text>
                 </View>
               ) : null}
-              <View style={[styles.costRow, { marginTop: 6 }]}>
-                <Text style={styles.totalLabel}>Total Bayar</Text>
+
+              <View style={[styles.costRow, { marginTop: 6, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#F0F1F6' }]}>
+                <Text style={styles.totalLabel}>Total Pembayaran</Text>
                 <Text style={styles.totalValue}>{formatRupiah(order.total)}</Text>
               </View>
 
@@ -405,6 +521,61 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#6B7088',
     lineHeight: 18,
+  },
+  pendingPaymentCard: {
+    backgroundColor: '#FFF8EC',
+    borderRadius: 20,
+    padding: 18,
+    marginBottom: 16,
+    borderWidth: 1.5,
+    borderColor: '#F7E5C4',
+  },
+  pendingHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 14,
+  },
+  pendingTitle: {
+    fontFamily: 'AlbertSans_700Bold',
+    fontSize: 15,
+    color: '#181F4B',
+  },
+  pendingSubText: {
+    fontFamily: 'SourceSans3_400Regular',
+    fontSize: 12,
+    color: '#6B7088',
+    marginTop: 2,
+    lineHeight: 17,
+  },
+  continuePaymentBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#181F4B',
+    height: 48,
+    borderRadius: 24,
+    elevation: 2,
+    marginBottom: 8,
+  },
+  continuePaymentBtnText: {
+    fontFamily: 'SourceSans3_700Bold',
+    fontSize: 14,
+    color: '#FFFFFF',
+  },
+  simPaymentBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#C9A876',
+    height: 42,
+    borderRadius: 21,
+  },
+  simPaymentBtnText: {
+    fontFamily: 'SourceSans3_600SemiBold',
+    fontSize: 13,
+    color: '#181F4B',
   },
   stepperCard: {
     backgroundColor: '#FFFFFF',

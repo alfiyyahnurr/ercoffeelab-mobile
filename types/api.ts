@@ -52,6 +52,9 @@ export interface Order {
   outletName?: string;
   fulfillmentType?: 'pickup' | 'delivery';
   deliveryAddress?: string | null;
+  deliveryFee?: number;
+  deliveryDistanceKm?: number | null;
+  serviceFee?: number;
   paymentMethodName?: string | null;
   subtotal?: number;
   discount?: number;

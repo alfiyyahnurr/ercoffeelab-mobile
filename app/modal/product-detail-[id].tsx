@@ -113,21 +113,12 @@ export default function ProductDetailScreen() {
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.scrollList} showsVerticalScrollIndicator={false}>
-          {/* Product Image Header Box */}
-          <View style={styles.heroBox}>
-            {rawImageUrl && rawImageUrl.trim().length > 0 ? (
+          {/* Product Image Header Box - Hanya tampil jika ada foto produk dari database */}
+          {rawImageUrl && rawImageUrl.trim().length > 0 ? (
+            <View style={styles.heroBox}>
               <Image source={{ uri: rawImageUrl }} style={styles.heroImage} resizeMode="cover" />
-            ) : (
-              <View style={styles.noImagePlaceholder}>
-                {productType === 'food' ? (
-                  <Utensils size={56} color="#C9A876" strokeWidth={1.5} />
-                ) : (
-                  <Coffee size={56} color="#C9A876" strokeWidth={1.5} />
-                )}
-                <Text style={styles.noImageText}>Foto produk belum diunggah</Text>
-              </View>
-            )}
-          </View>
+            </View>
+          ) : null}
 
           {/* Product Title & Price Card */}
           <View style={styles.infoCard}>

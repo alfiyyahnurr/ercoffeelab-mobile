@@ -71,17 +71,8 @@ export default function ProductCustomizationModal() {
   const rawImageUrl = dbProduct?.imageUrl || params.imageUrl || null;
   const productType = dbProduct?.type || (params.type as 'beverage' | 'food') || 'beverage';
 
-  const defaultBeverageImage =
-    'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?w=800&auto=format&fit=crop&q=80';
-  const defaultFoodImage =
-    'https://images.unsplash.com/photo-1555507036-ab1f4038808a?w=800&auto=format&fit=crop&q=80';
-
-  const displayImageUrl =
-    rawImageUrl && rawImageUrl.trim().length > 0
-      ? rawImageUrl
-      : productType === 'food'
-      ? defaultFoodImage
-      : defaultBeverageImage;
+  const hasValidImage = Boolean(rawImageUrl && rawImageUrl.trim().length > 0);
+  const displayImageUrl = hasValidImage ? rawImageUrl!.trim() : null;
 
   const availableAddons: CartAddon[] =
     dbProduct?.addons && dbProduct.addons.length > 0
@@ -149,10 +140,12 @@ export default function ProductCustomizationModal() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollList} showsVerticalScrollIndicator={false}>
-        {/* Large Product Hero Header Box */}
-        <View style={styles.productHeroBox}>
-          <Image source={{ uri: displayImageUrl }} style={styles.heroImage} resizeMode="cover" />
-        </View>
+        {/* Large Product Hero Header Box - Hanya tampil jika ada foto produk dari database */}
+        {hasValidImage && displayImageUrl ? (
+          <View style={styles.productHeroBox}>
+            <Image source={{ uri: displayImageUrl }} style={styles.heroImage} resizeMode="cover" />
+          </View>
+        ) : null}
 
         {/* Product Details Header */}
         <View style={styles.detailsGroup}>

@@ -50,7 +50,7 @@ export default function PaymentWebViewModal() {
     setSimulating(true);
     try {
       // Call dev simulation endpoint POST /api/payments/midtrans/simulate
-      await mobileApiFetch<{ message: string }>('/api/payments/midtrans/simulate', {
+      await mobileApiFetch<{ status: string; paid: boolean }>('/api/payments/midtrans/simulate', {
         method: 'POST',
         body: JSON.stringify({
           orderId: orderId,
@@ -58,10 +58,10 @@ export default function PaymentWebViewModal() {
         }),
       });
 
-      handleFinishPayment();
-    } catch {
-      // Even if endpoint fails or already paid, navigate to order detail
-      handleFinishPayment();
+      await handleFinishPayment();
+    } catch (err: any) {
+      console.warn('[payment-webview] Simulation error:', err);
+      await handleFinishPayment();
     } finally {
       setSimulating(false);
     }

@@ -25,6 +25,8 @@ import {
   ShoppingBag,
   Heart,
   X,
+  Coffee,
+  Utensils,
 } from 'lucide-react-native';
 
 import { mobileApiFetch } from '@/lib/api-client';
@@ -411,7 +413,11 @@ export default function MenuScreen() {
                     <Image source={{ uri: product.imageUrl }} style={styles.productImage} />
                   ) : (
                     <View style={styles.productPlaceholder}>
-                      <ShoppingBag size={36} color="#FFFFFF" opacity={0.8} />
+                      {product.type === 'food' ? (
+                        <Utensils size={36} color="#C9A876" opacity={0.9} />
+                      ) : (
+                        <Coffee size={36} color="#C9A876" opacity={0.9} />
+                      )}
                     </View>
                   )}
 

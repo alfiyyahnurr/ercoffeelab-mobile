@@ -19,6 +19,8 @@ import {
   Sparkles,
   MapPin,
   ChevronRight,
+  Coffee,
+  Utensils,
 } from 'lucide-react-native';
 
 import Header from '@/components/Header';
@@ -270,7 +272,11 @@ export default function HomeScreen() {
                     <Image source={{ uri: product.imageUrl }} style={styles.productImage} />
                   ) : (
                     <View style={styles.productPlaceholder}>
-                      <ShoppingBag size={32} color="#FFFFFF" opacity={0.8} />
+                      {product.type === 'food' ? (
+                        <Utensils size={32} color="#C9A876" opacity={0.9} />
+                      ) : (
+                        <Coffee size={32} color="#C9A876" opacity={0.9} />
+                      )}
                     </View>
                   )}
 

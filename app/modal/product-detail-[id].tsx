@@ -68,18 +68,6 @@ export default function ProductDetailScreen() {
   const rawImageUrl = dbProduct?.imageUrl ?? (params.imageUrl !== undefined ? params.imageUrl : null);
   const productType = dbProduct?.type || (params.type as 'beverage' | 'food') || 'beverage';
 
-  const defaultBeverageImage =
-    'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?w=800&auto=format&fit=crop&q=80';
-  const defaultFoodImage =
-    'https://images.unsplash.com/photo-1555507036-ab1f4038808a?w=800&auto=format&fit=crop&q=80';
-
-  const displayImageUrl =
-    rawImageUrl && rawImageUrl.trim().length > 0
-      ? rawImageUrl.trim()
-      : productType === 'food'
-      ? defaultFoodImage
-      : defaultBeverageImage;
-
   const formatRupiah = (val: number) => {
     return 'Rp ' + val.toLocaleString('id-ID');
   };
@@ -127,7 +115,23 @@ export default function ProductDetailScreen() {
         <ScrollView contentContainerStyle={styles.scrollList} showsVerticalScrollIndicator={false}>
           {/* Product Image Header Box */}
           <View style={styles.heroBox}>
-            <Image source={{ uri: displayImageUrl }} style={styles.heroImage} resizeMode="cover" />
+            {rawImageUrl && rawImageUrl.trim().length > 0 ? (
+              <Image source={{ uri: rawImageUrl.trim() }} style={styles.heroImage} resizeMode="cover" />
+            ) : (
+              <View style={styles.brandedHeroPlaceholder}>
+                <View style={styles.placeholderIconCircle}>
+                  {productType === 'food' ? (
+                    <Utensils size={48} color="#C9A876" />
+                  ) : (
+                    <Coffee size={48} color="#C9A876" />
+                  )}
+                </View>
+                <Text style={styles.placeholderBrandText}>ER COFFEE LAB</Text>
+                <Text style={styles.placeholderCategoryText}>
+                  {productType === 'food' ? 'Koleksi Makanan & Pastry' : 'Koleksi Minuman & Kopi'}
+                </Text>
+              </View>
+            )}
           </View>
 
           {/* Product Title & Price Card */}
@@ -223,18 +227,36 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  noImagePlaceholder: {
-    flex: 1,
+  brandedHeroPlaceholder: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#181F4B',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#101535',
     padding: 20,
   },
-  noImageText: {
+  placeholderIconCircle: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: 'rgba(201, 168, 118, 0.12)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(201, 168, 118, 0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  placeholderBrandText: {
+    fontFamily: 'AlbertSans_700Bold',
+    fontSize: 14,
+    color: '#C9A876',
+    letterSpacing: 2,
+    marginBottom: 4,
+  },
+  placeholderCategoryText: {
     fontFamily: 'SourceSans3_400Regular',
-    fontSize: 13,
-    color: '#A0A5BD',
-    marginTop: 10,
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.75)',
   },
   infoCard: {
     backgroundColor: '#FFFFFF',

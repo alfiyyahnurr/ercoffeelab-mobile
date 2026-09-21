@@ -20,6 +20,7 @@ import {
   Minus,
   Check,
   Coffee,
+  Utensils,
   ShoppingBag,
 } from 'lucide-react-native';
 import { useCart, CartAddon } from '@/lib/cart-store';
@@ -70,18 +71,6 @@ export default function ProductCustomizationModal() {
     'House signature: espresso blend khas ER Coffee Lab dipadukan dengan bahan segar berkualitas tinggi.';
   const rawImageUrl = dbProduct?.imageUrl || params.imageUrl || null;
   const productType = dbProduct?.type || (params.type as 'beverage' | 'food') || 'beverage';
-
-  const defaultBeverageImage =
-    'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?w=800&auto=format&fit=crop&q=80';
-  const defaultFoodImage =
-    'https://images.unsplash.com/photo-1555507036-ab1f4038808a?w=800&auto=format&fit=crop&q=80';
-
-  const displayImageUrl =
-    rawImageUrl && rawImageUrl.trim().length > 0
-      ? rawImageUrl.trim()
-      : productType === 'food'
-      ? defaultFoodImage
-      : defaultBeverageImage;
 
   const availableAddons: CartAddon[] =
     dbProduct?.addons && dbProduct.addons.length > 0
@@ -151,7 +140,23 @@ export default function ProductCustomizationModal() {
       <ScrollView contentContainerStyle={styles.scrollList} showsVerticalScrollIndicator={false}>
         {/* Large Product Hero Header Box */}
         <View style={styles.productHeroBox}>
-          <Image source={{ uri: displayImageUrl }} style={styles.heroImage} resizeMode="cover" />
+          {rawImageUrl && rawImageUrl.trim().length > 0 ? (
+            <Image source={{ uri: rawImageUrl.trim() }} style={styles.heroImage} resizeMode="cover" />
+          ) : (
+            <View style={styles.brandedHeroPlaceholder}>
+              <View style={styles.placeholderIconCircle}>
+                {productType === 'food' ? (
+                  <Utensils size={42} color="#C9A876" />
+                ) : (
+                  <Coffee size={42} color="#C9A876" />
+                )}
+              </View>
+              <Text style={styles.placeholderBrandText}>ER COFFEE LAB</Text>
+              <Text style={styles.placeholderCategoryText}>
+                {productType === 'food' ? 'Koleksi Makanan & Pastry' : 'Koleksi Minuman & Kopi'}
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* Product Details Header */}
@@ -398,15 +403,36 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  heroPlaceholder: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    backgroundColor: '#0E1230',
-    borderWidth: 2,
-    borderColor: '#C9A876',
+  brandedHeroPlaceholder: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#181F4B',
     alignItems: 'center',
     justifyContent: 'center',
+    padding: 16,
+  },
+  placeholderIconCircle: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    backgroundColor: 'rgba(201, 168, 118, 0.12)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(201, 168, 118, 0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  placeholderBrandText: {
+    fontFamily: 'AlbertSans_700Bold',
+    fontSize: 12,
+    color: '#C9A876',
+    letterSpacing: 2,
+    marginBottom: 2,
+  },
+  placeholderCategoryText: {
+    fontFamily: 'SourceSans3_400Regular',
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.75)',
   },
   detailsGroup: {
     marginBottom: 24,

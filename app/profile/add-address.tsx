@@ -368,54 +368,6 @@ export default function AddAddressScreen() {
           height={220}
         />
 
-        {/* Real-time Delivery Distance & Estimated Ongkir Calculator Card */}
-        {(() => {
-          const outletLat = selectedOutlet?.latitude ?? -6.9175;
-          const outletLng = selectedOutlet?.longitude ?? 107.6191;
-          const distanceKm = calculateHaversineDistance(
-            userCoords.latitude,
-            userCoords.longitude,
-            outletLat,
-            outletLng
-          );
-          const isDeliverable = distanceKm <= 10.0;
-          const estimatedOngkir = distanceKm <= 5.0 ? 10000 : 15000;
-
-          return (
-            <View
-              style={[
-                styles.distanceCalcCard,
-                !isDeliverable && styles.distanceCalcCardOutOfRange,
-              ]}
-            >
-              <View
-                style={[
-                  styles.distanceIconBadge,
-                  !isDeliverable && styles.distanceIconBadgeOutOfRange,
-                ]}
-              >
-                <Navigation size={15} color={isDeliverable ? '#181F4B' : '#C9576B'} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.distanceOutletLabel}>
-                  Jarak ke {selectedOutlet?.name || 'ER Coffee Lab Bandung'}
-                </Text>
-                <Text
-                  style={[
-                    styles.distanceResultText,
-                    !isDeliverable && styles.distanceResultTextOutOfRange,
-                  ]}
-                >
-                  {distanceKm} km •{' '}
-                  {isDeliverable
-                    ? `Estimasi Ongkir: Rp ${estimatedOngkir.toLocaleString('id-ID')}`
-                    : 'Di Luar Radius Delivery (> 10 km)'}
-                </Text>
-              </View>
-            </View>
-          );
-        })()}
-
         {/* Section 1: Detail Alamat */}
         <View style={styles.sectionGroup}>
           <Text style={styles.sectionTitle}>Detail Alamat</Text>

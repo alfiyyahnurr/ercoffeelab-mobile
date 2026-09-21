@@ -367,36 +367,6 @@ export default function OrderTrackingScreen() {
                     {loadingPayment ? 'Menghubungkan Midtrans...' : `Lanjutkan Pembayaran (${formatRupiah(order.total)})`}
                   </Text>
                 </TouchableOpacity>
-
-                {/* Check Real-time Midtrans Status button */}
-                <TouchableOpacity
-                  style={styles.checkStatusBtn}
-                  onPress={() => handleCheckPaymentStatus(false)}
-                  disabled={checkingPayment || loadingPayment}
-                  activeOpacity={0.8}
-                >
-                  {checkingPayment ? (
-                    <ActivityIndicator size="small" color="#181F4B" style={{ marginRight: 6 }} />
-                  ) : (
-                    <RefreshCw size={15} color="#181F4B" style={{ marginRight: 6 }} />
-                  )}
-                  <Text style={styles.checkStatusBtnText}>
-                    {checkingPayment ? 'Memeriksa ke Midtrans...' : '🔄 Cek Status Pembayaran (Sudah Bayar)'}
-                  </Text>
-                </TouchableOpacity>
-
-                {/* Dev simulation button */}
-                <TouchableOpacity
-                  style={styles.simPaymentBtn}
-                  onPress={handleSimulatePayment}
-                  disabled={simulatingPayment || checkingPayment}
-                  activeOpacity={0.8}
-                >
-                  <CheckCircle2 size={15} color="#181F4B" style={{ marginRight: 6 }} />
-                  <Text style={styles.simPaymentBtnText}>
-                    {simulatingPayment ? 'Memproses Simulasi...' : 'Simulasi Bayar Lunas (Dev)'}
-                  </Text>
-                </TouchableOpacity>
               </View>
             )}
 
@@ -627,43 +597,11 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: 24,
     elevation: 2,
-    marginBottom: 8,
   },
   continuePaymentBtnText: {
     fontFamily: 'SourceSans3_700Bold',
     fontSize: 14,
     color: '#FFFFFF',
-  },
-  checkStatusBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FAF5EA',
-    borderWidth: 1.5,
-    borderColor: '#C9A876',
-    height: 44,
-    borderRadius: 22,
-    marginBottom: 8,
-  },
-  checkStatusBtnText: {
-    fontFamily: 'SourceSans3_700Bold',
-    fontSize: 13,
-    color: '#181F4B',
-  },
-  simPaymentBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1.5,
-    borderColor: '#C9A876',
-    height: 42,
-    borderRadius: 21,
-  },
-  simPaymentBtnText: {
-    fontFamily: 'SourceSans3_600SemiBold',
-    fontSize: 13,
-    color: '#181F4B',
   },
   stepperCard: {
     backgroundColor: '#FFFFFF',

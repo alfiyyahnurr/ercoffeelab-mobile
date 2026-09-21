@@ -68,6 +68,18 @@ export default function ProductDetailScreen() {
   const rawImageUrl = dbProduct?.imageUrl ?? (params.imageUrl !== undefined ? params.imageUrl : null);
   const productType = dbProduct?.type || (params.type as 'beverage' | 'food') || 'beverage';
 
+  const defaultBeverageImage =
+    'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?w=800&auto=format&fit=crop&q=80';
+  const defaultFoodImage =
+    'https://images.unsplash.com/photo-1555507036-ab1f4038808a?w=800&auto=format&fit=crop&q=80';
+
+  const displayImageUrl =
+    rawImageUrl && rawImageUrl.trim().length > 0
+      ? rawImageUrl.trim()
+      : productType === 'food'
+      ? defaultFoodImage
+      : defaultBeverageImage;
+
   const formatRupiah = (val: number) => {
     return 'Rp ' + val.toLocaleString('id-ID');
   };
@@ -113,12 +125,10 @@ export default function ProductDetailScreen() {
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.scrollList} showsVerticalScrollIndicator={false}>
-          {/* Product Image Header Box - Hanya tampil jika ada foto produk dari database */}
-          {rawImageUrl && rawImageUrl.trim().length > 0 ? (
-            <View style={styles.heroBox}>
-              <Image source={{ uri: rawImageUrl }} style={styles.heroImage} resizeMode="cover" />
-            </View>
-          ) : null}
+          {/* Product Image Header Box */}
+          <View style={styles.heroBox}>
+            <Image source={{ uri: displayImageUrl }} style={styles.heroImage} resizeMode="cover" />
+          </View>
 
           {/* Product Title & Price Card */}
           <View style={styles.infoCard}>

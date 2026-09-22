@@ -11,7 +11,7 @@ import {
   Platform,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getToken } from '@/lib/auth-store';
 
 import {
@@ -51,6 +51,7 @@ const FALLBACK_CATEGORIES: CategoryOption[] = [
 
 export default function MenuScreen() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const params = useLocalSearchParams<{ mode?: 'pickup' | 'delivery' }>();
   const { totalCount, totalAmount } = useCart();
   const { selectedOutlet, selectedAddress } = useOutlet();
@@ -128,19 +129,20 @@ export default function MenuScreen() {
     }
   }, [dbFavData]);
 
-  const toggleFav = async (id: number) => {
+  const toggleFav = async (id: number | string) => {
     if (!authed) {
       router.push('/onboarding' as any);
       return;
     }
 
-    const isFav = favorites.has(id);
+    const numId = Number(id);
+    const isFav = favorites.has(numId);
     setFavorites((prev) => {
       const next = new Set(prev);
       if (isFav) {
-        next.delete(id);
+        next.delete(numId);
       } else {
-        next.add(id);
+        next.add(numId);
       }
       return next;
     });
@@ -149,17 +151,17 @@ export default function MenuScreen() {
       if (isFav) {
         await mobileApiFetch('/api/favorites', {
           method: 'DELETE',
-          body: JSON.stringify({ productId: id }),
+          body: JSON.stringify({ productId: numId }),
         });
       } else {
         await mobileApiFetch('/api/favorites', {
           method: 'POST',
-          body: JSON.stringify({ productId: id }),
+          body: JSON.stringify({ productId: numId }),
         });
       }
-      refetchFavorites();
+      queryClient.invalidateQueries({ queryKey: ['favorites'] });
     } catch {
-      // Fallback
+      refetchFavorites();
     }
   };
 
@@ -184,7 +186,7 @@ export default function MenuScreen() {
   const hasFavorites = favorites.size > 0;
 
   // Filtered datasets
-  const favProducts = products.filter((p) => favorites.has(p.id));
+  const favProducts = products.filter((p) => favorites.has(Number(p.id)));
   const bestsellerProducts = products.filter((p) => Boolean(p.bestseller || (p as any).isBestseller));
   const newProducts = products.filter((p) => Boolean(p.isNew && !(p.bestseller || (p as any).isBestseller)));
 
@@ -237,7 +239,7 @@ export default function MenuScreen() {
 
   // Reusable Product Card Component with + button
   const renderProductCard = (product: Product) => {
-    const isFav = favorites.has(product.id);
+    const isFav = favorites.has(Number(product.id));
     const isBestseller = Boolean(product.bestseller || (product as any).isBestseller);
     const isNew = Boolean((product as any).isNew);
     const badgeLabel = product.badgeText || (isBestseller ? 'BEST SELLER' : isNew ? 'BARU' : null);

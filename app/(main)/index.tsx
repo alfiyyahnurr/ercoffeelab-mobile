@@ -10,7 +10,7 @@ import {
   Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ShoppingBag,
   Truck,
@@ -34,6 +34,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export default function HomeScreen() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { totalCount, totalAmount } = useCart();
   const { selectedOutlet } = useOutlet();
   const [authed, setAuthed] = useState<boolean>(false);
@@ -56,7 +57,7 @@ export default function HomeScreen() {
         const res = await mobileApiFetch<{ data: Product[] }>(
           `/api/outlets/${activeOutlet.id}/menu`
         );
-        const list = res.data ? res.data.filter((p) => p.bestseller || p.isAvailable) : [];
+        const list = res.data ? res.data.filter((p) => p.bestseller || (p as any).isBestseller || p.isAvailable) : [];
         return Array.isArray(list) ? list : [];
       } catch {
         return [];
@@ -81,12 +82,12 @@ export default function HomeScreen() {
   const nearbyOutlets = nearbyOutletsData || [];
 
   // Fetch customer favorites from DB API GET /api/favorites
-  const { data: dbFavData } = useQuery({
+  const { data: dbFavData, refetch: refetchFavorites } = useQuery({
     queryKey: ['favorites'],
     queryFn: async () => {
       try {
         const res = await mobileApiFetch<{ productIds: number[] }>('/api/favorites');
-        return Array.isArray(res?.productIds) ? new Set(res.productIds) : new Set<number>();
+        return Array.isArray(res?.productIds) ? new Set(res.productIds.map(Number)) : new Set<number>();
       } catch {
         return new Set<number>();
       }
@@ -100,19 +101,20 @@ export default function HomeScreen() {
     }
   }, [dbFavData]);
 
-  const toggleFav = async (id: number) => {
+  const toggleFav = async (id: number | string) => {
     if (!authed) {
       router.push('/onboarding' as any);
       return;
     }
 
-    const isFav = favorites.has(id);
+    const numId = Number(id);
+    const isFav = favorites.has(numId);
     setFavorites((prev) => {
       const next = new Set(prev);
       if (isFav) {
-        next.delete(id);
+        next.delete(numId);
       } else {
-        next.add(id);
+        next.add(numId);
       }
       return next;
     });
@@ -121,16 +123,17 @@ export default function HomeScreen() {
       if (isFav) {
         await mobileApiFetch('/api/favorites', {
           method: 'DELETE',
-          body: JSON.stringify({ productId: id }),
+          body: JSON.stringify({ productId: numId }),
         });
       } else {
         await mobileApiFetch('/api/favorites', {
           method: 'POST',
-          body: JSON.stringify({ productId: id }),
+          body: JSON.stringify({ productId: numId }),
         });
       }
+      queryClient.invalidateQueries({ queryKey: ['favorites'] });
     } catch {
-      // Fallback
+      refetchFavorites();
     }
   };
 
@@ -255,7 +258,7 @@ export default function HomeScreen() {
         {/* Bestsellers Grid */}
         <View style={styles.gridContainer}>
           {bestsellers.slice(0, 4).map((product) => {
-            const isFav = favorites.has(product.id);
+            const isFav = favorites.has(Number(product.id));
             const isBestseller = product.bestseller || (product as any).isBestseller;
             const isNew = (product as any).isNew;
             const badgeLabel = (product as any).badgeText || (isBestseller ? 'BEST SELLER' : isNew ? 'BARU' : null);

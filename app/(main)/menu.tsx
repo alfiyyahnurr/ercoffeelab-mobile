@@ -20,19 +20,18 @@ import {
   ChevronRight,
   Star,
   Search,
-  Gift,
   Plus,
-  ShoppingBag,
   Heart,
   X,
   Coffee,
   Utensils,
+  Sparkles,
 } from 'lucide-react-native';
 
 import { mobileApiFetch } from '@/lib/api-client';
 import { useCart } from '@/lib/cart-store';
 import { useOutlet } from '@/lib/outlet-store';
-import { Product, Outlet } from '@/types/api';
+import { Product } from '@/types/api';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -43,7 +42,6 @@ interface CategoryOption {
 
 const FALLBACK_CATEGORIES: CategoryOption[] = [
   { id: 'all', label: 'Semua' },
-  { id: 'favorite', label: 'Rasa Favorit' },
   { id: 'Coffee', label: 'Kopi' },
   { id: 'Milk Based', label: 'Berbasis Susu' },
   { id: 'Fruit', label: 'Buah' },
@@ -110,10 +108,64 @@ export default function MenuScreen() {
     },
   });
 
-  // Build dynamic categories list
+  // Fetch customer favorites from DB API GET /api/favorites
+  const { data: dbFavData, refetch: refetchFavorites } = useQuery({
+    queryKey: ['favorites'],
+    queryFn: async () => {
+      try {
+        const res = await mobileApiFetch<{ productIds: number[] }>('/api/favorites');
+        return Array.isArray(res?.productIds) ? new Set(res.productIds.map(Number)) : new Set<number>();
+      } catch {
+        return new Set<number>();
+      }
+    },
+    enabled: authed,
+  });
+
+  useEffect(() => {
+    if (dbFavData) {
+      setFavorites(dbFavData);
+    }
+  }, [dbFavData]);
+
+  const toggleFav = async (id: number) => {
+    if (!authed) {
+      router.push('/onboarding' as any);
+      return;
+    }
+
+    const isFav = favorites.has(id);
+    setFavorites((prev) => {
+      const next = new Set(prev);
+      if (isFav) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+
+    try {
+      if (isFav) {
+        await mobileApiFetch('/api/favorites', {
+          method: 'DELETE',
+          body: JSON.stringify({ productId: id }),
+        });
+      } else {
+        await mobileApiFetch('/api/favorites', {
+          method: 'POST',
+          body: JSON.stringify({ productId: id }),
+        });
+      }
+      refetchFavorites();
+    } catch {
+      // Fallback
+    }
+  };
+
+  // Build dynamic categories list (Without redundant 'Rasa Favorit' text pill)
   const categoryPills: CategoryOption[] = [
     { id: 'all', label: 'Semua' },
-    { id: 'favorite', label: 'Rasa Favorit' },
   ];
 
   if (dbCategoriesData && dbCategoriesData.length > 0) {
@@ -123,45 +175,146 @@ export default function MenuScreen() {
       }
     });
   } else {
-    FALLBACK_CATEGORIES.slice(2).forEach((cat) => {
+    FALLBACK_CATEGORIES.slice(1).forEach((cat) => {
       categoryPills.push(cat);
     });
   }
 
   const products = menuData || [];
+  const hasFavorites = favorites.size > 0;
 
-  // Filter products safely with null guards
-  const filteredProducts = products.filter((p) => {
+  // Filtered datasets
+  const favProducts = products.filter((p) => favorites.has(p.id));
+  const bestsellerProducts = products.filter((p) => Boolean(p.bestseller || (p as any).isBestseller));
+  const newProducts = products.filter((p) => Boolean(p.isNew && !(p.bestseller || (p as any).isBestseller)));
+
+  const filteredSearchResults = products.filter((p) => {
     const pCategory = p.category ? String(p.category) : '';
     const pName = p.name ? String(p.name) : '';
-    const targetCat = selectedCat ? String(selectedCat).toLowerCase() : '';
-
-    const matchesSearch =
+    return (
       searchQuery.trim() === '' ||
       pName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      pCategory.toLowerCase().includes(searchQuery.toLowerCase());
-
-    if (!matchesSearch) return false;
-
-    if (selectedCat === 'all') return true;
-    if (selectedCat === 'favorite') return favorites.has(p.id);
-
-    return (
-      pCategory.toLowerCase() === targetCat ||
-      pCategory.toLowerCase().includes(targetCat)
+      pCategory.toLowerCase().includes(searchQuery.toLowerCase())
     );
   });
 
-  const toggleFav = (id: number) => {
-    setFavorites((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  };
-
   const formatRupiah = (val: number) => {
     return 'Rp ' + val.toLocaleString('id-ID');
+  };
+
+  const handleOpenDetail = (product: Product) => {
+    router.push({
+      pathname: '/modal/product-detail',
+      params: {
+        id: String(product.id),
+        name: product.name,
+        price: String(product.price),
+        desc: product.description ?? '',
+        imageUrl: product.imageUrl ?? '',
+        type: product.type || 'beverage',
+      },
+    } as any);
+  };
+
+  const handleOpenCustomizeModal = (product: Product) => {
+    if (!authed) {
+      router.push('/onboarding' as any);
+      return;
+    }
+
+    router.push({
+      pathname: '/modal/product',
+      params: {
+        id: String(product.id),
+        name: product.name,
+        price: String(product.price),
+        desc: product.description ?? '',
+        imageUrl: product.imageUrl ?? '',
+        type: product.type || 'beverage',
+      },
+    } as any);
+  };
+
+  // Reusable Product Card Component with + button
+  const renderProductCard = (product: Product) => {
+    const isFav = favorites.has(product.id);
+    const isBestseller = Boolean(product.bestseller || (product as any).isBestseller);
+    const isNew = Boolean((product as any).isNew);
+    const badgeLabel = product.badgeText || (isBestseller ? 'BEST SELLER' : isNew ? 'BARU' : null);
+
+    return (
+      <View key={product.id} style={styles.productCard}>
+        {/* Image Container -> Opens Detail Screen */}
+        <TouchableOpacity
+          style={styles.productImageContainer}
+          onPress={() => handleOpenDetail(product)}
+          activeOpacity={0.85}
+        >
+          {product.imageUrl ? (
+            <Image source={{ uri: product.imageUrl }} style={styles.productImage} />
+          ) : (
+            <View style={styles.productPlaceholder}>
+              {product.type === 'food' ? (
+                <Utensils size={36} color="#C9A876" opacity={0.9} />
+              ) : (
+                <Coffee size={36} color="#C9A876" opacity={0.9} />
+              )}
+            </View>
+          )}
+
+          {/* Badge Label */}
+          {badgeLabel ? (
+            <View
+              style={[
+                styles.badgePill,
+                isNew && !isBestseller ? { backgroundColor: '#C9576B' } : null,
+              ]}
+            >
+              <Text style={styles.badgePillText}>{badgeLabel}</Text>
+            </View>
+          ) : null}
+
+          {/* Favorite Button */}
+          <TouchableOpacity
+            style={styles.favHeartButton}
+            onPress={() => toggleFav(product.id)}
+            activeOpacity={0.8}
+          >
+            <Heart
+              size={14}
+              color={isFav ? '#C9576B' : '#181F4B'}
+              fill={isFav ? '#C9576B' : 'transparent'}
+            />
+          </TouchableOpacity>
+        </TouchableOpacity>
+
+        {/* Info Container -> Opens Detail Screen */}
+        <TouchableOpacity
+          style={styles.productInfoContainer}
+          onPress={() => handleOpenDetail(product)}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.productName} numberOfLines={1}>
+            {product.name}
+          </Text>
+          <Text style={styles.productDesc} numberOfLines={2}>
+            {product.description || 'Deskripsi belum tersedia.'}
+          </Text>
+
+          {/* Price & Add Button (+) */}
+          <View style={styles.priceRow}>
+            <Text style={styles.productPrice}>{formatRupiah(product.price)}</Text>
+            <TouchableOpacity
+              style={styles.addButton}
+              onPress={() => handleOpenCustomizeModal(product)}
+              activeOpacity={0.8}
+            >
+              <Plus size={14} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </View>
+    );
   };
 
   return (
@@ -292,20 +445,28 @@ export default function MenuScreen() {
           </View>
         ) : (
           <View style={styles.categoryRow}>
-            {/* Favorite Pill Button */}
+            {/* Dynamic Star (Best Seller) / Heart (Favorites) Pill Button */}
             <TouchableOpacity
               style={[
                 styles.favPillButton,
-                selectedCat === 'favorite' && styles.categoryPillActive,
+                selectedCat === 'special' && styles.categoryPillActive,
               ]}
-              onPress={() => setSelectedCat(selectedCat === 'favorite' ? 'all' : 'favorite')}
+              onPress={() => setSelectedCat(selectedCat === 'special' ? 'all' : 'special')}
               activeOpacity={0.8}
             >
-              <Star
-                size={14}
-                color={selectedCat === 'favorite' ? '#C9A876' : '#181F4B'}
-                fill={selectedCat === 'favorite' ? '#C9A876' : 'transparent'}
-              />
+              {hasFavorites ? (
+                <Heart
+                  size={15}
+                  color={selectedCat === 'special' ? '#C9576B' : '#181F4B'}
+                  fill={selectedCat === 'special' ? '#C9576B' : 'transparent'}
+                />
+              ) : (
+                <Star
+                  size={15}
+                  color={selectedCat === 'special' ? '#C9A876' : '#181F4B'}
+                  fill={selectedCat === 'special' ? '#C9A876' : 'transparent'}
+                />
+              )}
             </TouchableOpacity>
 
             {/* Horizontal Scroll Category Pills */}
@@ -350,132 +511,198 @@ export default function MenuScreen() {
 
       {/* Main Content Scroll List */}
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {/* CASE 1: SEARCH ACTIVE */}
+        {searchQuery.trim() !== '' ? (
+          <View>
+            <View style={styles.sectionGridHeader}>
+              <View style={styles.sectionTitleRow}>
+                <Search size={18} color="#181F4B" style={{ marginRight: 6 }} />
+                <Text style={styles.sectionGridTitle}>Hasil Pencarian</Text>
+              </View>
+              <Text style={styles.totalCountText}>{filteredSearchResults.length} item</Text>
+            </View>
 
-        {/* Section Header Grid */}
-        <View style={styles.sectionGridHeader}>
-          <View style={styles.sectionTitleRow}>
-            <Star size={18} color="#C9A876" fill="#C9A876" style={{ marginRight: 6 }} />
-            <Text style={styles.sectionGridTitle}>Wajib Dicoba!</Text>
+            {filteredSearchResults.length === 0 ? (
+              <View style={styles.emptyContainer}>
+                <Text style={styles.emptyTitle}>Menu tidak ditemukan</Text>
+                <Text style={styles.emptySubtitle}>
+                  Coba gunakan kata kunci lain untuk mencari menu yang Anda inginkan.
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.gridContainer}>
+                {filteredSearchResults.map(renderProductCard)}
+              </View>
+            )}
           </View>
-          <Text style={styles.totalCountText}>{filteredProducts.length} item</Text>
-        </View>
+        ) : selectedCat === 'special' ? (
+          /* CASE 2: SPECIAL TAB (FAVORIT ATAU BEST SELLER KHUSUS) */
+          <View>
+            {hasFavorites ? (
+              <View>
+                <View style={styles.sectionGridHeader}>
+                  <View style={styles.sectionTitleRow}>
+                    <Heart size={18} color="#C9576B" fill="#C9576B" style={{ marginRight: 6 }} />
+                    <Text style={styles.sectionGridTitle}>Menu Favorit Kamu</Text>
+                  </View>
+                  <Text style={styles.totalCountText}>{favProducts.length} item</Text>
+                </View>
 
-        {/* 2-Column Product Grid */}
-        <View style={styles.gridContainer}>
-          {filteredProducts.map((product) => {
-            const isFav = favorites.has(product.id);
-            const isBestseller = product.bestseller || (product as any).isBestseller;
-            const isNew = (product as any).isNew;
-            const badgeLabel = product.badgeText || (isBestseller ? 'BEST SELLER' : isNew ? 'BARU' : null);
+                {favProducts.length === 0 ? (
+                  <View style={styles.emptyContainer}>
+                    <Text style={styles.emptyTitle}>Belum ada menu favorit</Text>
+                    <Text style={styles.emptySubtitle}>
+                      Tekan icon hati pada menu yang Anda sukai untuk menyimpannya di sini.
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={styles.gridContainer}>
+                    {favProducts.map(renderProductCard)}
+                  </View>
+                )}
+              </View>
+            ) : (
+              <View>
+                <View style={styles.sectionGridHeader}>
+                  <View style={styles.sectionTitleRow}>
+                    <Star size={18} color="#C9A876" fill="#C9A876" style={{ marginRight: 6 }} />
+                    <Text style={styles.sectionGridTitle}>Wajib Dicoba! (Best Seller)</Text>
+                  </View>
+                  <Text style={styles.totalCountText}>{bestsellerProducts.length} item</Text>
+                </View>
 
-            const handleOpenDetail = () => {
-              router.push({
-                pathname: '/modal/product-detail',
-                params: {
-                  id: String(product.id),
-                  name: product.name,
-                  price: String(product.price),
-                  desc: product.description ?? '',
-                  imageUrl: product.imageUrl ?? '',
-                  type: product.type || 'beverage',
-                },
-              } as any);
-            };
+                {bestsellerProducts.length === 0 ? (
+                  <View style={styles.emptyContainer}>
+                    <Text style={styles.emptyTitle}>Belum ada menu best seller</Text>
+                    <Text style={styles.emptySubtitle}>Silakan jelajahi menu lainnya di toko kami.</Text>
+                  </View>
+                ) : (
+                  <View style={styles.gridContainer}>
+                    {bestsellerProducts.map(renderProductCard)}
+                  </View>
+                )}
+              </View>
+            )}
+          </View>
+        ) : selectedCat !== 'all' ? (
+          /* CASE 3: SINGLE CATEGORY FILTERED (e.g. 'Coffee') */
+          <View>
+            {(() => {
+              const catItems = products.filter((p) => {
+                const pCategory = p.category ? String(p.category).toLowerCase() : '';
+                return pCategory === selectedCat.toLowerCase() || pCategory.includes(selectedCat.toLowerCase());
+              });
 
-            const handleOpenCustomizeModal = () => {
-              if (!authed) {
-                router.push('/onboarding' as any);
-                return;
-              }
+              return (
+                <View>
+                  <View style={styles.sectionGridHeader}>
+                    <View style={styles.sectionTitleRow}>
+                      <Coffee size={18} color="#181F4B" style={{ marginRight: 6 }} />
+                      <Text style={styles.sectionGridTitle}>{selectedCat}</Text>
+                    </View>
+                    <Text style={styles.totalCountText}>{catItems.length} item</Text>
+                  </View>
 
-              router.push({
-                pathname: '/modal/product',
-                params: {
-                  id: String(product.id),
-                  name: product.name,
-                  price: String(product.price),
-                  desc: product.description ?? '',
-                  imageUrl: product.imageUrl ?? '',
-                  type: product.type || 'beverage',
-                },
-              } as any);
-            };
-
-            return (
-              <View key={product.id} style={styles.productCard}>
-                {/* Image Container -> Opens Detail Screen */}
-                <TouchableOpacity
-                  style={styles.productImageContainer}
-                  onPress={handleOpenDetail}
-                  activeOpacity={0.85}
-                >
-                  {product.imageUrl ? (
-                    <Image source={{ uri: product.imageUrl }} style={styles.productImage} />
+                  {catItems.length === 0 ? (
+                    <View style={styles.emptyContainer}>
+                      <Text style={styles.emptyTitle}>Belum ada menu untuk kategori ini</Text>
+                    </View>
                   ) : (
-                    <View style={styles.productPlaceholder}>
-                      {product.type === 'food' ? (
-                        <Utensils size={36} color="#C9A876" opacity={0.9} />
-                      ) : (
-                        <Coffee size={36} color="#C9A876" opacity={0.9} />
-                      )}
+                    <View style={styles.gridContainer}>
+                      {catItems.map(renderProductCard)}
                     </View>
                   )}
-
-                  {/* Badge Label */}
-                  {badgeLabel ? (
-                    <View
-                      style={[
-                        styles.badgePill,
-                        isNew && !isBestseller ? { backgroundColor: '#C9576B' } : null,
-                      ]}
-                    >
-                      <Text style={styles.badgePillText}>{badgeLabel}</Text>
-                    </View>
-                  ) : null}
-
-                  {/* Favorite Button */}
-                  <TouchableOpacity
-                    style={styles.favHeartButton}
-                    onPress={() => toggleFav(product.id)}
-                  >
-                    <Heart
-                      size={14}
-                      color={isFav ? '#C9576B' : '#181F4B'}
-                      fill={isFav ? '#C9576B' : 'transparent'}
-                    />
-                  </TouchableOpacity>
-                </TouchableOpacity>
-
-                {/* Info Container -> Opens Detail Screen */}
-                <TouchableOpacity
-                  style={styles.productInfoContainer}
-                  onPress={handleOpenDetail}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.productName} numberOfLines={1}>
-                    {product.name}
-                  </Text>
-                  <Text style={styles.productDesc} numberOfLines={2}>
-                    {product.description || 'Deskripsi belum tersedia.'}
-                  </Text>
-
-                  {/* Price & Add Button */}
-                  <View style={styles.priceRow}>
-                    <Text style={styles.productPrice}>{formatRupiah(product.price)}</Text>
-                    <TouchableOpacity
-                      style={styles.addPillButton}
-                      onPress={handleOpenCustomizeModal}
-                      activeOpacity={0.85}
-                    >
-                      <Plus size={12} color="#FFFFFF" style={{ marginRight: 2 }} />
-                      <Text style={styles.addPillText}>Tambah</Text>
-                    </TouchableOpacity>
+                </View>
+              );
+            })()}
+          </View>
+        ) : (
+          /* CASE 4: DEFAULT 'ALL' VIEW (MEMANJANG KE BAWAH / SECTIONED VERTICAL FLOW) */
+          <View>
+            {/* Section 1: Menu Favorit Kamu (Jika ada) */}
+            {hasFavorites && favProducts.length > 0 && (
+              <View style={styles.sectionBlock}>
+                <View style={styles.sectionGridHeader}>
+                  <View style={styles.sectionTitleRow}>
+                    <Heart size={18} color="#C9576B" fill="#C9576B" style={{ marginRight: 6 }} />
+                    <Text style={styles.sectionGridTitle}>Menu Favorit Kamu</Text>
                   </View>
-                </TouchableOpacity>
+                  <Text style={styles.totalCountText}>{favProducts.length} item</Text>
+                </View>
+
+                <View style={styles.gridContainer}>
+                  {favProducts.map(renderProductCard)}
+                </View>
               </View>
-            );
-          })}
-        </View>
+            )}
+
+            {/* Section 2: Wajib Dicoba! (Best Seller) */}
+            {bestsellerProducts.length > 0 && (
+              <View style={styles.sectionBlock}>
+                <View style={styles.sectionGridHeader}>
+                  <View style={styles.sectionTitleRow}>
+                    <Star size={18} color="#C9A876" fill="#C9A876" style={{ marginRight: 6 }} />
+                    <Text style={styles.sectionGridTitle}>Wajib Dicoba!</Text>
+                  </View>
+                  <Text style={styles.totalCountText}>{bestsellerProducts.length} item</Text>
+                </View>
+
+                <View style={styles.gridContainer}>
+                  {bestsellerProducts.map(renderProductCard)}
+                </View>
+              </View>
+            )}
+
+            {/* Section 3: Menu Terbaru (New Arrivals) */}
+            {newProducts.length > 0 && (
+              <View style={styles.sectionBlock}>
+                <View style={styles.sectionGridHeader}>
+                  <View style={styles.sectionTitleRow}>
+                    <Sparkles size={18} color="#C9A876" style={{ marginRight: 6 }} />
+                    <Text style={styles.sectionGridTitle}>Menu Terbaru</Text>
+                  </View>
+                  <Text style={styles.totalCountText}>{newProducts.length} item</Text>
+                </View>
+
+                <View style={styles.gridContainer}>
+                  {newProducts.map(renderProductCard)}
+                </View>
+              </View>
+            )}
+
+            {/* Section 4, 5, ...: Kategori-Kategori Database */}
+            {categoryPills
+              .filter((c) => c.id !== 'all')
+              .map((cat) => {
+                const catItems = products.filter((p) => {
+                  const pCategory = p.category ? String(p.category).toLowerCase() : '';
+                  return pCategory === cat.id.toLowerCase() || pCategory.includes(cat.id.toLowerCase());
+                });
+
+                if (catItems.length === 0) return null;
+
+                return (
+                  <View key={cat.id} style={styles.sectionBlock}>
+                    <View style={styles.sectionGridHeader}>
+                      <View style={styles.sectionTitleRow}>
+                        {cat.id.toLowerCase().includes('snack') || cat.id.toLowerCase().includes('food') ? (
+                          <Utensils size={18} color="#181F4B" style={{ marginRight: 6 }} />
+                        ) : (
+                          <Coffee size={18} color="#181F4B" style={{ marginRight: 6 }} />
+                        )}
+                        <Text style={styles.sectionGridTitle}>{cat.label}</Text>
+                      </View>
+                      <Text style={styles.totalCountText}>{catItems.length} item</Text>
+                    </View>
+
+                    <View style={styles.gridContainer}>
+                      {catItems.map(renderProductCard)}
+                    </View>
+                  </View>
+                );
+              })}
+          </View>
+        )}
       </ScrollView>
 
       {/* Sticky Bottom Floating Cart Bar */}
@@ -695,39 +922,8 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingBottom: 100,
   },
-  merchandiseBannerCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#E8F1FD',
-    borderRadius: 20,
-    padding: 16,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: '#C5DCFA',
-  },
-  merchIconCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  merchTextContent: {
-    flex: 1,
-  },
-  merchTitle: {
-    fontFamily: 'AlbertSans_700Bold',
-    fontSize: 15,
-    color: '#181F4B',
-  },
-  merchSubtitle: {
-    fontFamily: 'SourceSans3_400Regular',
-    fontSize: 12,
-    color: '#181F4B',
-    marginTop: 2,
-    opacity: 0.8,
+  sectionBlock: {
+    marginBottom: 24,
   },
   sectionGridHeader: {
     flexDirection: 'row',
@@ -833,18 +1029,38 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#181F4B',
   },
-  addPillButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  addButton: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
     backgroundColor: '#181F4B',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  addPillText: {
-    fontFamily: 'SourceSans3_700Bold',
-    fontSize: 11,
-    color: '#FFFFFF',
+  emptyContainer: {
+    paddingVertical: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E7E8F0',
+    paddingHorizontal: 20,
+    marginVertical: 8,
+  },
+  emptyTitle: {
+    fontFamily: 'AlbertSans_700Bold',
+    fontSize: 15,
+    color: '#181F4B',
+    textAlign: 'center',
+  },
+  emptySubtitle: {
+    fontFamily: 'SourceSans3_400Regular',
+    fontSize: 12,
+    color: '#6B7088',
+    textAlign: 'center',
+    marginTop: 4,
+    lineHeight: 16,
   },
   floatingCartContainer: {
     position: 'absolute',

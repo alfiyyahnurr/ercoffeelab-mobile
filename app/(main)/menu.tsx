@@ -568,7 +568,7 @@ export default function MenuScreen() {
                 <View style={styles.sectionGridHeader}>
                   <View style={styles.sectionTitleRow}>
                     <Star size={18} color="#C9A876" fill="#C9A876" style={{ marginRight: 6 }} />
-                    <Text style={styles.sectionGridTitle}>Wajib Dicoba! (Best Seller)</Text>
+                    <Text style={styles.sectionGridTitle}>Wajib Dicoba</Text>
                   </View>
                   <Text style={styles.totalCountText}>{bestsellerProducts.length} item</Text>
                 </View>

@@ -197,11 +197,11 @@ export default function OrderTrackingScreen() {
 
     if (status === 'cancelled') return -1;
     if (pay === 'unpaid') return 1;
-    if (status === 'checkout' || status === 'paid') return 2;
-    if (status === 'processing') return 3;
-    if (status === 'ready' || status === 'delivering') return 4;
+    if (['checkout', 'paid', 'confirmed', 'pending'].includes(status)) return 2;
+    if (['processing', 'preparing'].includes(status)) return 3;
+    if (['ready', 'on_delivery', 'delivering'].includes(status)) return 4;
     if (status === 'completed') return 5;
-    return 3;
+    return 2;
   };
 
   const activeStep = getStepIndex(order?.orderStatus, order?.paymentStatus);
@@ -209,9 +209,9 @@ export default function OrderTrackingScreen() {
 
   const steps = [
     { step: 1, title: 'Menunggu Pembayaran', sub: 'Menunggu konfirmasi Snap Midtrans' },
-    { step: 2, title: 'Sudah Dibayar', sub: 'Pembayaran terverifikasi' },
-    { step: 3, title: 'Diproses Barista', sub: 'Pesanan sedang diracik barista' },
-    { step: 4, title: 'Siap / Dikirim', sub: order?.fulfillmentType === 'delivery' ? 'Kurir mengirimkan pesanan' : 'Silakan ambil di counter store' },
+    { step: 2, title: 'Pembayaran Terkonfirmasi', sub: 'Pembayaran terverifikasi' },
+    { step: 3, title: 'Sedang Diracik Barista', sub: 'Pesanan sedang diracik barista' },
+    { step: 4, title: 'Siap Diambil atau Sedang Dikirim', sub: order?.fulfillmentType === 'delivery' ? 'Kurir mengirimkan pesanan' : 'Silakan ambil di counter toko' },
     { step: 5, title: 'Pesanan Selesai', sub: 'Terima kasih telah berbelanja' },
   ];
 
@@ -276,14 +276,14 @@ export default function OrderTrackingScreen() {
                   <Text style={styles.cancelledTitle}>Pesanan Dibatalkan</Text>
                 </View>
                 <Text style={styles.cancelledSubText}>
-                  Pesanan ini telah dibatalkan oleh pihak toko/sistem. Silakan hubungi kasir atau outlet kami via WhatsApp jika memerlukan informasi lebih lanjut.
+                  Pesanan ini telah dibatalkan oleh pihak toko. Silakan hubungi kasir atau outlet kami via WhatsApp jika memerlukan informasi lebih lanjut.
                 </Text>
               </View>
             ) : (
               <View style={styles.stepperCard}>
                 <View style={styles.stepperHeader}>
                   <Clock size={18} color="#C9A876" style={{ marginRight: 6 }} />
-                  <Text style={styles.stepperHeaderTitle}>Status Progres Pesanan (Real-Time)</Text>
+                  <Text style={styles.stepperHeaderTitle}>Status Progres Pesanan</Text>
                 </View>
 
                 <View style={styles.stepperList}>
@@ -364,7 +364,7 @@ export default function OrderTrackingScreen() {
                     <CreditCard size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
                   )}
                   <Text style={styles.continuePaymentBtnText}>
-                    {loadingPayment ? 'Menghubungkan Midtrans...' : `Lanjutkan Pembayaran (${formatRupiah(order.total)})`}
+                    {loadingPayment ? 'Menghubungkan Midtrans...' : `Lanjutkan Pembayaran ${formatRupiah(order.total)}`}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -430,7 +430,7 @@ export default function OrderTrackingScreen() {
               {(order.fulfillmentType === 'delivery' || (order.deliveryFee ?? 0) > 0) && (
                 <View style={styles.costRow}>
                   <Text style={styles.costLabel}>
-                    Ongkos Kirim (Delivery){order.deliveryDistanceKm ? ` [${order.deliveryDistanceKm} km]` : ''}
+                    Ongkos Kirim Delivery {order.deliveryDistanceKm ? `${order.deliveryDistanceKm} km` : ''}
                   </Text>
                   <Text style={styles.costValue}>{formatRupiah(order.deliveryFee || 0)}</Text>
                 </View>

@@ -11,6 +11,7 @@ import {
   Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import * as Linking from 'expo-linking';
 import { useQuery } from '@tanstack/react-query';
 import {
   ArrowLeft,
@@ -157,8 +158,10 @@ export default function CheckoutScreen() {
   const [voucherError, setVoucherError] = useState<string | null>(null);
   const [validatingVoucher, setValidatingVoucher] = useState<boolean>(false);
 
-  // Selected Payment Method ID
-  const [selectedPaymentId, setSelectedPaymentId] = useState<number>(1);
+  // Selected Payment Method & Bank
+  const [selectedMethodCode, setSelectedMethodCode] = useState<string>('gopay');
+  const [selectedBank, setSelectedBank] = useState<string>('bca');
+  const [selectedPaymentId, setSelectedPaymentId] = useState<number>(2);
 
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -176,7 +179,7 @@ export default function CheckoutScreen() {
   const targetLng = selectedAddress?.longitude ?? 107.5420;
   const outletId = selectedOutlet?.id || 1;
 
-  // Immediate Client-Side Haversine Distance (km)
+  // Immediate Client-Side Haversine Distance km
   const clientDistanceKm = calculateHaversineDistance(
     targetLat,
     targetLng,
@@ -210,8 +213,8 @@ export default function CheckoutScreen() {
           maxDistanceKm: 10,
           outletName: selectedOutlet?.name || 'ER Coffee Lab',
           message: isDeliverableFallback
-            ? `Ongkos kirim (${clientDistanceKm} km): Rp ${feeFallback.toLocaleString('id-ID')}`
-            : `Alamat di luar jangkauan (Jarak: ${clientDistanceKm} km, Maksimal: 10 km)`,
+            ? `Ongkos kirim ${clientDistanceKm} km: Rp ${feeFallback.toLocaleString('id-ID')}`
+            : `Alamat di luar jangkauan - Jarak: ${clientDistanceKm} km, Maksimal: 10 km`,
         };
       }
     },
@@ -232,36 +235,46 @@ export default function CheckoutScreen() {
   const discountAmount = appliedVoucher ? appliedVoucher.discount : 0;
   const grandTotal = Math.max(0, totalAmount - discountAmount + serviceFee + (isDeliverable ? deliveryFee : 0));
 
-  // Fetch active payment methods from API
-  const { data: paymentMethodsData } = useQuery({
-    queryKey: ['payment-methods'],
-    queryFn: async () => {
-      try {
-        const res = await mobileApiFetch<{ data: PaymentMethodOption[] }>(
-          '/api/payment-methods'
-        );
-        return res.data;
-      } catch {
-        return [
-          { id: 1, code: 'qris', displayName: 'Midtrans QRIS / GoPay / ShopeePay' },
-          { id: 2, code: 'bank_transfer', displayName: 'Midtrans Virtual Account' },
-        ];
-      }
+  // Multi Payment Methods Options
+  const paymentMethodOptions = [
+    {
+      id: 2,
+      code: 'gopay',
+      name: 'GoPay',
+      desc: 'App to App Instant Payment Gojek atau GoPay',
+      badge: 'Instan Deeplink',
     },
-  });
+    {
+      id: 5,
+      code: 'shopeepay',
+      name: 'ShopeePay',
+      desc: 'App to App Instant Payment Shopee',
+      badge: 'Instan Deeplink',
+    },
+    {
+      id: 3,
+      code: 'bank_transfer',
+      name: 'Virtual Account Bank',
+      desc: 'BCA, Mandiri, BNI, BRI, Permata',
+      badge: 'Nomor VA Unik',
+      isVaGroup: true,
+    },
+    {
+      id: 1,
+      code: 'qris',
+      name: 'QRIS Terpadu',
+      desc: 'Scan QR Semua E-Wallet dan Mobile Banking',
+      badge: 'QR Code',
+    },
+  ];
 
-  const rawMethods = paymentMethodsData && paymentMethodsData.length > 0
-    ? paymentMethodsData
-    : [
-        { id: 1, code: 'qris', displayName: 'Midtrans QRIS / GoPay / ShopeePay' },
-        { id: 2, code: 'bank_transfer', displayName: 'Midtrans Virtual Account' },
-      ];
-
-  const paymentMethods = rawMethods.filter((pm) => {
-    const c = (pm.code || '').toLowerCase();
-    const d = (pm.displayName || '').toLowerCase();
-    return !c.includes('cash') && !c.includes('tunai') && !d.includes('cash') && !d.includes('tunai');
-  });
+  const vaBanks = [
+    { code: 'bca', name: 'BCA Virtual Account' },
+    { code: 'mandiri', name: 'Mandiri Bill E-Channel' },
+    { code: 'bni', name: 'BNI Virtual Account' },
+    { code: 'bri', name: 'BRI Virtual Account' },
+    { code: 'permata', name: 'Permata Virtual Account' },
+  ];
 
   // Fetch active vouchers from API
   const { data: activeVouchersData } = useQuery({
@@ -397,7 +410,7 @@ export default function CheckoutScreen() {
       }));
 
       const fullDeliveryAddress = courierNotes.trim()
-        ? `${deliveryAddress.trim()} (Catatan: ${courierNotes.trim()})`
+        ? `${deliveryAddress.trim()} Catatan: ${courierNotes.trim()}`
         : deliveryAddress.trim();
 
       // 1. Create Order POST /api/orders with PIN verification and distance coordinates
@@ -422,14 +435,26 @@ export default function CheckoutScreen() {
 
       const orderId = orderRes.id;
 
-      // 2. Request Midtrans Snap Transaction POST /api/payments/midtrans/charge
+      // 2. Request Direct Midtrans Charge POST /api/payments/midtrans/charge
       const chargeRes = await mobileApiFetch<{
-        snapToken: string;
-        redirectUrl: string;
+        orderId: number | string;
+        orderNumber: string;
+        paymentType: string;
+        snapToken?: string;
+        redirectUrl?: string;
+        deeplinkUrl?: string;
+        qrUrl?: string;
+        qrString?: string;
+        vaNumber?: string;
+        bankName?: string;
+        billerCode?: string;
+        billKey?: string;
+        expiryTime?: string;
       }>('/api/payments/midtrans/charge', {
         method: 'POST',
         body: JSON.stringify({
           orderId: orderId,
+          bank: selectedMethodCode === 'bank_transfer' ? selectedBank : undefined,
         }),
       });
 
@@ -437,14 +462,37 @@ export default function CheckoutScreen() {
       clearCart();
       setShowPinModal(false);
 
-      // 3. Open Payment WebView Modal
+      // 3. App-to-App Deeplink handling (GoPay / ShopeePay)
+      if (chargeRes.deeplinkUrl) {
+        try {
+          const supported = await Linking.canOpenURL(chargeRes.deeplinkUrl);
+          if (supported) {
+            await Linking.openURL(chargeRes.deeplinkUrl);
+          } else {
+            await Linking.openURL(chargeRes.deeplinkUrl);
+          }
+        } catch (e) {
+          console.warn('[checkout] Deeplink open error:', e);
+        }
+      }
+
+      // 4. Open Payment Modal / WebView with comprehensive parameters
       router.push({
         pathname: '/modal/payment-webview' as any,
         params: {
           orderId: String(orderId),
           orderNumber: orderRes.orderNumber,
+          paymentType: chargeRes.paymentType || selectedMethodCode,
           snapToken: chargeRes.snapToken,
           redirectUrl: chargeRes.redirectUrl,
+          deeplinkUrl: chargeRes.deeplinkUrl,
+          qrUrl: chargeRes.qrUrl,
+          qrString: chargeRes.qrString,
+          vaNumber: chargeRes.vaNumber,
+          bankName: chargeRes.bankName || selectedBank.toUpperCase(),
+          billerCode: chargeRes.billerCode,
+          billKey: chargeRes.billKey,
+          expiryTime: chargeRes.expiryTime,
         },
       });
     } catch (err: any) {
@@ -517,7 +565,7 @@ export default function CheckoutScreen() {
                   fulfillmentType === 'delivery' && styles.fulfillmentTabTextActive,
                 ]}
               >
-                Delivery (Kurir)
+                Delivery Kurir
               </Text>
             </TouchableOpacity>
           </View>
@@ -568,7 +616,7 @@ export default function CheckoutScreen() {
                   {(selectedAddress?.recipientName || selectedAddress?.recipientPhone) && (
                     <Text style={styles.recipientInfoText}>
                       Penerima: {selectedAddress.recipientName || 'Pelanggan'}{' '}
-                      {selectedAddress.recipientPhone ? `(${selectedAddress.recipientPhone})` : ''}
+                      {selectedAddress.recipientPhone ? `- ${selectedAddress.recipientPhone}` : ''}
                     </Text>
                   )}
 
@@ -577,7 +625,7 @@ export default function CheckoutScreen() {
                       style={styles.courierNotesInput}
                       value={courierNotes}
                       onChangeText={setCourierNotes}
-                      placeholder="Catatan kurir (opsional: no rumah, patokan, titip satpam)..."
+                      placeholder="Catatan kurir opsional: no rumah, patokan, titip satpam..."
                       placeholderTextColor="#9AA0A6"
                     />
                   </View>
@@ -589,7 +637,7 @@ export default function CheckoutScreen() {
                   </View>
                   <Text style={styles.emptyAddressTitle}>Belum Ada Alamat Pengiriman</Text>
                   <Text style={styles.emptyAddressSubtitle}>
-                    Tambahkan alamat tujuan pengiriman kamu untuk menghitung estimasi jarak & ongkir secara akurat.
+                    Tambahkan alamat tujuan pengiriman kamu untuk menghitung estimasi jarak dan ongkir secara akurat.
                   </Text>
                   <TouchableOpacity
                     style={styles.addAddressPrimaryBtn}
@@ -611,7 +659,7 @@ export default function CheckoutScreen() {
               {isLoadingDeliveryQuote ? (
                 <View style={styles.quoteLoadingBox}>
                   <ActivityIndicator size="small" color="#C9A876" style={{ marginRight: 8 }} />
-                  <Text style={styles.quoteLoadingText}>Menghitung estimasi jarak & ongkir...</Text>
+                  <Text style={styles.quoteLoadingText}>Menghitung estimasi jarak dan ongkir...</Text>
                 </View>
               ) : deliveryQuote ? (
                 deliveryQuote.isDeliverable ? (
@@ -633,7 +681,7 @@ export default function CheckoutScreen() {
                     <AlertCircle size={18} color="#C9576B" style={{ marginRight: 8 }} />
                     <View style={{ flex: 1 }}>
                       <Text style={styles.quoteErrorTitle}>
-                        Di Luar Jangkauan ({deliveryQuote.distanceKm} km)
+                        Di Luar Jangkauan - {deliveryQuote.distanceKm} km
                       </Text>
                       <Text style={styles.quoteErrorDesc}>
                         {deliveryQuote.message ||
@@ -646,7 +694,7 @@ export default function CheckoutScreen() {
 
               <View style={styles.deliveryTimeRow}>
                 <Clock size={14} color="#6B7088" style={{ marginRight: 6 }} />
-                <Text style={styles.deliveryTimeText}>{deliveryTime}</Text>
+                <Text style={styles.deliveryTimeText}>Kirim Secepatnya 15-30 Menit</Text>
               </View>
             </View>
           ) : (
@@ -658,7 +706,7 @@ export default function CheckoutScreen() {
                 </Text>
               </View>
               <Text style={styles.outletLocationAddress}>
-                {selectedOutlet?.address || 'Jl. Soekarno Hatta No. 45, Bandung (Store Siap Dipickup)'}
+                {selectedOutlet?.address || 'Jl. Soekarno Hatta No. 45, Bandung - Store Siap Dipickup'}
               </Text>
             </View>
           )}
@@ -666,7 +714,7 @@ export default function CheckoutScreen() {
 
         {/* Ordered Items Summary List */}
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Daftar Pesanan ({items.length} Menu)</Text>
+          <Text style={styles.sectionTitle}>Daftar Pesanan - {items.length} Menu</Text>
 
           {items.map((item) => (
             <View key={item.cartId} style={styles.orderItemRow}>
@@ -690,7 +738,7 @@ export default function CheckoutScreen() {
         <View style={styles.sectionCard}>
           <View style={styles.voucherHeaderRow}>
             <Ticket size={18} color="#C9A876" style={{ marginRight: 8 }} />
-            <Text style={styles.sectionTitleNoMargin}>Voucher / Kode Promo</Text>
+            <Text style={styles.sectionTitleNoMargin}>Voucher dan Kode Promo</Text>
           </View>
 
           <View style={styles.voucherInputRow}>
@@ -701,7 +749,7 @@ export default function CheckoutScreen() {
                 setVoucherCodeInput(val);
                 setVoucherError(null);
               }}
-              placeholder="Masukkan kode promo (contoh: DISKON25)"
+              placeholder="Masukkan kode promo contoh: DISKON25"
               placeholderTextColor="#9AA0A6"
               autoCapitalize="characters"
             />
@@ -744,7 +792,7 @@ export default function CheckoutScreen() {
             <View style={styles.appliedVoucherBadge}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.appliedVoucherTitle}>
-                  Voucher Berhasil Dipasang ({appliedVoucher.code})
+                  Voucher Berhasil Dipasang - {appliedVoucher.code}
                 </Text>
 
                 <Text style={styles.appliedVoucherValue}>
@@ -772,7 +820,7 @@ export default function CheckoutScreen() {
           ) : null}
         </View>
 
-        {/* Payment Method Selector Section */}
+        {/* Multi Payment Method Selector Section */}
         <View style={styles.sectionCard}>
           <View style={styles.voucherHeaderRow}>
             <CreditCard size={18} color="#181F4B" style={{ marginRight: 8 }} />
@@ -780,24 +828,69 @@ export default function CheckoutScreen() {
           </View>
 
           <View style={styles.paymentMethodsList}>
-            {paymentMethods.map((pm) => {
-              const isSelected = selectedPaymentId === pm.id;
+            {paymentMethodOptions.map((pm) => {
+              const isSelected = selectedMethodCode === pm.code;
               return (
-                <TouchableOpacity
-                  key={pm.id}
-                  style={[
-                    styles.paymentMethodOptionCard,
-                    isSelected && styles.paymentMethodOptionCardSelected,
-                  ]}
-                  onPress={() => setSelectedPaymentId(pm.id)}
-                  activeOpacity={0.8}
-                >
-                  <View style={styles.radioCircle}>
-                    {isSelected && <View style={styles.radioDot} />}
-                  </View>
+                <View key={pm.code}>
+                  <TouchableOpacity
+                    style={[
+                      styles.paymentMethodOptionCard,
+                      isSelected && styles.paymentMethodOptionCardSelected,
+                    ]}
+                    onPress={() => {
+                      setSelectedMethodCode(pm.code);
+                      setSelectedPaymentId(pm.id);
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <View style={styles.radioCircle}>
+                      {isSelected && <View style={styles.radioDot} />}
+                    </View>
 
-                  <Text style={styles.paymentMethodName}>{pm.displayName}</Text>
-                </TouchableOpacity>
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Text style={styles.paymentMethodName}>{pm.name}</Text>
+                        <View style={styles.methodBadge}>
+                          <Text style={styles.methodBadgeText}>{pm.badge}</Text>
+                        </View>
+                      </View>
+                      <Text style={styles.paymentMethodDesc}>{pm.desc}</Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  {/* If Virtual Account is selected, show Bank choices */}
+                  {isSelected && pm.isVaGroup && (
+                    <View style={styles.vaBanksSubList}>
+                      <Text style={styles.vaBanksSubTitle}>Pilih Bank Virtual Account:</Text>
+                      {vaBanks.map((b) => {
+                        const isBankActive = selectedBank === b.code;
+                        return (
+                          <TouchableOpacity
+                            key={b.code}
+                            style={[
+                              styles.vaBankOptionItem,
+                              isBankActive && styles.vaBankOptionItemActive,
+                            ]}
+                            onPress={() => setSelectedBank(b.code)}
+                            activeOpacity={0.8}
+                          >
+                            <View style={styles.subRadioCircle}>
+                              {isBankActive && <View style={styles.subRadioDot} />}
+                            </View>
+                            <Text
+                              style={[
+                                styles.vaBankOptionText,
+                                isBankActive && styles.vaBankOptionTextActive,
+                              ]}
+                            >
+                              {b.name}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  )}
+                </View>
               );
             })}
           </View>
@@ -996,7 +1089,7 @@ export default function CheckoutScreen() {
                     pinDigits.join('').length === 6 ? styles.confirmPayTextActive : null,
                   ]}
                 >
-                  Konfirmasi & Bayar
+                  Konfirmasi dan Bayar
                 </Text>
               )}
             </TouchableOpacity>
@@ -1492,8 +1585,77 @@ const styles = StyleSheet.create({
     backgroundColor: '#181F4B',
   },
   paymentMethodName: {
-    fontFamily: 'SourceSans3_600SemiBold',
-    fontSize: 13,
+    fontFamily: 'AlbertSans_700Bold',
+    fontSize: 14,
+    color: '#181F4B',
+  },
+  paymentMethodDesc: {
+    fontFamily: 'SourceSans3_400Regular',
+    fontSize: 12,
+    color: '#6B7088',
+    marginTop: 2,
+  },
+  methodBadge: {
+    backgroundColor: '#181F4B',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    marginLeft: 8,
+  },
+  methodBadgeText: {
+    fontFamily: 'AlbertSans_700Bold',
+    fontSize: 9,
+    color: '#C9A876',
+  },
+  vaBanksSubList: {
+    backgroundColor: '#FAF7F0',
+    borderWidth: 1,
+    borderColor: '#E7DEC8',
+    borderRadius: 12,
+    padding: 10,
+    marginTop: -4,
+    marginBottom: 10,
+    marginLeft: 28,
+  },
+  vaBanksSubTitle: {
+    fontFamily: 'AlbertSans_700Bold',
+    fontSize: 11,
+    color: '#181F4B',
+    marginBottom: 6,
+  },
+  vaBankOptionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+  },
+  vaBankOptionItemActive: {
+    backgroundColor: '#FFFFFF',
+  },
+  subRadioCircle: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 1.5,
+    borderColor: '#181F4B',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+  },
+  subRadioDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#181F4B',
+  },
+  vaBankOptionText: {
+    fontFamily: 'SourceSans3_400Regular',
+    fontSize: 12,
+    color: '#6B7088',
+  },
+  vaBankOptionTextActive: {
+    fontFamily: 'SourceSans3_700Bold',
     color: '#181F4B',
   },
   summaryRow: {

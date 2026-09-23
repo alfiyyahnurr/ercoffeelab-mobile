@@ -71,7 +71,35 @@ export default function PaymentWebViewModal() {
   const [simulating, setSimulating] = useState<boolean>(false);
   const [checking, setChecking] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<'details' | 'webview'>('details');
+
+  const isEWallet = paymentType === 'gopay' || paymentType === 'shopeepay';
+  const isVa = paymentType === 'bank_transfer' || paymentType === 'echannel' || Boolean(vaNumber);
+  const isQr = paymentType === 'qris' || Boolean(qrUrl);
+
+  // Jika metode adalah Virtual Account atau Snap, buka langsung tampilan Midtrans Snap WebView secara penuh
+  const [activeTab, setActiveTab] = useState<'details' | 'webview'>(
+    isVa && redirectUrl ? 'webview' : 'details'
+  );
+
+  const targetSimulatorUrl =
+    deeplinkUrl ||
+    redirectUrl ||
+    (params.snapToken
+      ? 'https://app.sandbox.midtrans.com/snap/v2/vtweb/' + params.snapToken
+      : '');
+
+  // Auto-open simulator in browser for GoPay if available
+  useEffect(() => {
+    let opened = false;
+    if (isEWallet && targetSimulatorUrl && !opened) {
+      opened = true;
+      try {
+        Linking.openURL(targetSimulatorUrl).catch(() => {});
+      } catch (e) {
+        // Ignored
+      }
+    }
+  }, [isEWallet, targetSimulatorUrl]);
 
   // Auto-polling & AppState listener to automatically detect payment settlement
   useEffect(() => {
@@ -137,17 +165,16 @@ export default function PaymentWebViewModal() {
     }
   };
 
-  const handleOpenDeeplink = async () => {
-    if (!deeplinkUrl) return;
+  const handleOpenSimulator = async () => {
+    if (!targetSimulatorUrl) return;
     try {
-      const canOpen = await Linking.canOpenURL(deeplinkUrl);
+      const canOpen = await Linking.canOpenURL(targetSimulatorUrl);
       if (canOpen) {
-        await Linking.openURL(deeplinkUrl);
+        await Linking.openURL(targetSimulatorUrl);
       } else {
-        await Linking.openURL(deeplinkUrl);
+        await Linking.openURL(targetSimulatorUrl);
       }
     } catch {
-      // Fallback
       if (redirectUrl) {
         setActiveTab('webview');
       }
@@ -191,7 +218,7 @@ export default function PaymentWebViewModal() {
       } else {
         Alert.alert(
           'Status Pembayaran',
-          'Pembayaran belum terkonfirmasi lunas. Silakan selesaikan transaksi kamu terlebih dahulu.'
+          'Pembayaran belum terkonfirmasi lunas dari Midtrans. Silakan selesaikan transaksi di simulator terlebih dahulu.'
         );
       }
     } catch (err: any) {
@@ -204,12 +231,12 @@ export default function PaymentWebViewModal() {
     }
   };
 
+  // Simulasi instan khusus untuk QRIS (testing tanpa scan HP lain)
   const handleSimulatePayment = async () => {
     if (simulating) return;
 
     setSimulating(true);
     try {
-      // Call dev simulation endpoint POST /api/payments/midtrans/simulate
       const simRes = await mobileApiFetch<{
         status: string;
         paid: boolean;
@@ -238,10 +265,6 @@ export default function PaymentWebViewModal() {
     }
   };
 
-  const isEWallet = paymentType === 'gopay' || paymentType === 'shopeepay';
-  const isVa = paymentType === 'bank_transfer' || paymentType === 'echannel' || Boolean(vaNumber);
-  const isQr = paymentType === 'qris' || Boolean(qrUrl);
-
   return (
     <View style={styles.container}>
       {/* Top Modal Header */}
@@ -259,31 +282,19 @@ export default function PaymentWebViewModal() {
         <View style={{ width: 36 }} />
       </View>
 
-      {/* Dev Simulation Bar */}
+      {/* Info Status Bar (Tanpa Tombol Bypass Simulasi Umum) */}
       <View style={styles.simBar}>
         <View style={styles.simTextWrapper}>
           <Text style={styles.simOrderText}>Order #{orderNumber || orderId}</Text>
           <Text style={styles.simSubText}>Midtrans Sandbox Test Mode</Text>
         </View>
-        <TouchableOpacity
-          style={styles.simButton}
-          onPress={handleSimulatePayment}
-          disabled={simulating}
-          activeOpacity={0.85}
-        >
-          {simulating ? (
-            <ActivityIndicator size="small" color="#181F4B" />
-          ) : (
-            <>
-              <CheckCircle2 size={16} color="#181F4B" style={{ marginRight: 4 }} />
-              <Text style={styles.simButtonText}>Simulasi Lunas</Text>
-            </>
-          )}
-        </TouchableOpacity>
+        <View style={styles.sandboxBadge}>
+          <Text style={styles.sandboxBadgeText}>Sandbox Active</Text>
+        </View>
       </View>
 
       {/* Mode View: Dedicated Card vs Webview */}
-      {(isEWallet || isVa || isQr) && activeTab === 'details' ? (
+      {activeTab === 'details' ? (
         <ScrollView contentContainerStyle={styles.detailsScroll} showsVerticalScrollIndicator={false}>
           {/* E-Wallet Deeplink Section */}
           {isEWallet && (
@@ -299,26 +310,33 @@ export default function PaymentWebViewModal() {
                 {paymentType === 'shopeepay' ? 'Buka Aplikasi Shopee' : 'Buka Aplikasi GoPay'}
               </Text>
               <Text style={styles.cardSubText}>
-                Tagihan otomatis terhubung ke aplikasi dengan nominal yang terkunci. Silakan selesaikan pembayaran di aplikasi.
+                Tagihan otomatis terhubung ke simulator Midtrans dengan nominal yang terkunci. Silakan selesaikan pembayaran di simulator.
               </Text>
 
-              {deeplinkUrl ? (
-                <TouchableOpacity
-                  style={styles.deeplinkPrimaryBtn}
-                  onPress={handleOpenDeeplink}
-                  activeOpacity={0.85}
-                >
-                  <ExternalLink size={18} color="#181F4B" style={{ marginRight: 8 }} />
-                  <Text style={styles.deeplinkPrimaryBtnText}>
-                    {paymentType === 'shopeepay' ? 'Buka Aplikasi ShopeePay' : 'Buka Aplikasi GoPay'}
-                  </Text>
-                </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.deeplinkPrimaryBtn}
+                onPress={handleOpenSimulator}
+                activeOpacity={0.85}
+              >
+                <ExternalLink size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
+                <Text style={styles.deeplinkPrimaryBtnText}>
+                  {paymentType === 'shopeepay'
+                    ? 'Buka Simulator ShopeePay'
+                    : 'Buka Simulator GoPay Midtrans'}
+                </Text>
+              </TouchableOpacity>
+
+              {qrUrl ? (
+                <View style={styles.qrInsideWrapper}>
+                  <Text style={styles.qrInsideTitle}>Atau Scan QRIS GoPay</Text>
+                  <Image source={{ uri: qrUrl }} style={styles.qrImageInside} resizeMode="contain" />
+                </View>
               ) : null}
 
               <View style={styles.tipBox}>
                 <AlertCircle size={14} color="#6B7088" style={{ marginRight: 6 }} />
                 <Text style={styles.tipBoxText}>
-                  Setelah membayar di aplikasi, kamu akan otomatis dialihkan kembali ke ER Coffee Lab.
+                  Setelah membayar di simulator, sistem akan otomatis mengonfirmasi dan mengalihkan kembali ke pesanan kamu.
                 </Text>
               </View>
             </View>
@@ -337,32 +355,38 @@ export default function PaymentWebViewModal() {
                 Salin nomor virtual account di bawah ini dan lakukan transfer melalui m-Banking atau ATM {bankName}.
               </Text>
 
-              <View style={styles.vaNumberCard}>
-                <Text style={styles.vaNumberText}>{vaNumber}</Text>
-                <TouchableOpacity
-                  style={styles.copyBtn}
-                  onPress={handleCopyVa}
-                  activeOpacity={0.7}
-                >
-                  {copied ? (
-                    <>
-                      <Check size={14} color="#2E7D32" style={{ marginRight: 4 }} />
-                      <Text style={styles.copyBtnTextSuccess}>Tersalin</Text>
-                    </>
-                  ) : (
-                    <>
-                      <Copy size={14} color="#181F4B" style={{ marginRight: 4 }} />
-                      <Text style={styles.copyBtnText}>Salin No. VA</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-              </View>
-
-              {params.billerCode && (
-                <View style={styles.billerCodeRow}>
-                  <Text style={styles.billerCodeLabel}>Kode Perusahaan Biller:</Text>
-                  <Text style={styles.billerCodeValue}>{params.billerCode}</Text>
+              {vaNumber ? (
+                <View style={styles.vaNumberCard}>
+                  <Text style={styles.vaNumberText}>{vaNumber}</Text>
+                  <TouchableOpacity
+                    style={styles.copyBtn}
+                    onPress={handleCopyVa}
+                    activeOpacity={0.7}
+                  >
+                    {copied ? (
+                      <>
+                        <Check size={14} color="#2E7D32" style={{ marginRight: 4 }} />
+                        <Text style={styles.copyBtnTextSuccess}>Tersalin</Text>
+                      </>
+                    ) : (
+                      <>
+                        <Copy size={14} color="#181F4B" style={{ marginRight: 4 }} />
+                        <Text style={styles.copyBtnText}>Salin No. VA</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
                 </View>
+              ) : (
+                <TouchableOpacity
+                  style={styles.deeplinkPrimaryBtn}
+                  onPress={() => setActiveTab('webview')}
+                  activeOpacity={0.85}
+                >
+                  <Building2 size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
+                  <Text style={styles.deeplinkPrimaryBtnText}>
+                    Buka Halaman Midtrans Snap No. VA
+                  </Text>
+                </TouchableOpacity>
               )}
 
               {/* Guide Accordion / Steps */}
@@ -370,14 +394,14 @@ export default function PaymentWebViewModal() {
                 <Text style={styles.instructionsTitle}>Petunjuk Pembayaran m-Banking {bankName}</Text>
                 <Text style={styles.stepItem}>1. Buka aplikasi m-Banking {bankName} di ponsel kamu</Text>
                 <Text style={styles.stepItem}>2. Pilih menu Transfer lalu pilih Virtual Account</Text>
-                <Text style={styles.stepItem}>3. Masukkan nomor Virtual Account {vaNumber}</Text>
+                <Text style={styles.stepItem}>3. Masukkan nomor Virtual Account {vaNumber || 'dari Midtrans'}</Text>
                 <Text style={styles.stepItem}>4. Periksa kesesuaian nama ER Coffee Lab dan nominal pembayaran</Text>
                 <Text style={styles.stepItem}>5. Masukkan PIN transaksi kamu hingga pembayaran berhasil</Text>
               </View>
             </View>
           )}
 
-          {/* QRIS Section */}
+          {/* QRIS Section (Dengan Simulasi Khusus QRIS) */}
           {isQr && (
             <View style={styles.cardBox}>
               <View style={styles.badgeTop}>
@@ -395,6 +419,23 @@ export default function PaymentWebViewModal() {
                   <Image source={{ uri: qrUrl }} style={styles.qrImage} resizeMode="contain" />
                 </View>
               ) : null}
+
+              {/* Tombol Simulasi Khusus QRIS */}
+              <TouchableOpacity
+                style={styles.simQrisBtn}
+                onPress={handleSimulatePayment}
+                disabled={simulating}
+                activeOpacity={0.85}
+              >
+                {simulating ? (
+                  <ActivityIndicator size="small" color="#181F4B" />
+                ) : (
+                  <>
+                    <CheckCircle2 size={16} color="#181F4B" style={{ marginRight: 6 }} />
+                    <Text style={styles.simQrisBtnText}>Simulasi Scan QRIS Lunas</Text>
+                  </>
+                )}
+              </TouchableOpacity>
             </View>
           )}
 
@@ -421,8 +462,25 @@ export default function PaymentWebViewModal() {
           </View>
         </ScrollView>
       ) : (
-        /* Snap WebView fallback */
+        /* Fullscreen Snap WebView Mode */
         <View style={styles.webViewContainer}>
+          <View style={styles.webViewTopBar}>
+            <TouchableOpacity
+              style={styles.webViewBackBtn}
+              onPress={() => setActiveTab('details')}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.webViewBackBtnText}>Tampilkan Ringkasan Detail</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.webViewCheckBtn}
+              onPress={handleFinishPayment}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.webViewCheckBtnText}>Cek Status</Text>
+            </TouchableOpacity>
+          </View>
+
           {Platform.OS === 'web' ? (
             <iframe
               src={redirectUrl}
@@ -447,6 +505,7 @@ export default function PaymentWebViewModal() {
                     url.includes('finish') ||
                     url.includes('success') ||
                     url.includes('settlement') ||
+                    url.includes('payment-callback') ||
                     url.includes('status_code=200')
                   ) {
                     handleFinishPayment();
@@ -680,6 +739,81 @@ const styles = StyleSheet.create({
   qrImage: {
     width: 220,
     height: 220,
+  },
+  sandboxBadge: {
+    backgroundColor: '#C9A876',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  sandboxBadgeText: {
+    fontFamily: 'AlbertSans_700Bold',
+    fontSize: 11,
+    color: '#181F4B',
+  },
+  qrInsideWrapper: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#E7DEC8',
+    marginBottom: 12,
+  },
+  qrInsideTitle: {
+    fontFamily: 'AlbertSans_700Bold',
+    fontSize: 13,
+    color: '#181F4B',
+    marginBottom: 8,
+  },
+  qrImageInside: {
+    width: 180,
+    height: 180,
+  },
+  simQrisBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#C9A876',
+    paddingVertical: 12,
+    borderRadius: 12,
+    marginTop: 6,
+  },
+  simQrisBtnText: {
+    fontFamily: 'AlbertSans_700Bold',
+    fontSize: 14,
+    color: '#181F4B',
+  },
+  webViewTopBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#181F4B',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  webViewBackBtn: {
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  webViewBackBtnText: {
+    fontFamily: 'SourceSans3_600SemiBold',
+    fontSize: 12,
+    color: '#FFFFFF',
+  },
+  webViewCheckBtn: {
+    backgroundColor: '#C9A876',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  webViewCheckBtnText: {
+    fontFamily: 'AlbertSans_700Bold',
+    fontSize: 12,
+    color: '#181F4B',
   },
   bottomActions: {
     marginTop: 10,

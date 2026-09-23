@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,8 @@ import {
   ScrollView,
   Image,
   Alert,
+  AppState,
+  AppStateStatus,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as Linking from 'expo-linking';
@@ -36,6 +38,7 @@ export default function PaymentWebViewModal() {
     draftId?: string;
     orderId?: string;
     orderNumber?: string;
+    attemptId?: string;
     paymentType?: string;
     snapToken?: string;
     redirectUrl?: string;
@@ -52,6 +55,7 @@ export default function PaymentWebViewModal() {
   const draftId = params.draftId || '';
   const orderId = params.orderId || '';
   const orderNumber = params.orderNumber || '';
+  const attemptId = params.attemptId || '';
   const paymentType = (params.paymentType || '').toLowerCase();
   const redirectUrl =
     params.redirectUrl ||
@@ -68,6 +72,59 @@ export default function PaymentWebViewModal() {
   const [checking, setChecking] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'details' | 'webview'>('details');
+
+  // Auto-polling & AppState listener to automatically detect payment settlement
+  useEffect(() => {
+    let isMounted = true;
+    let pollTimer: any = null;
+
+    const performSilentCheck = async () => {
+      if (!orderNumber && !orderId) return;
+      try {
+        const res = await mobileApiFetch<{
+          status: string;
+          paid: boolean;
+          orderId?: number | string;
+          orderNumber?: string;
+        }>('/api/payments/midtrans/check-status', {
+          method: 'POST',
+          body: JSON.stringify({
+            orderId: orderId || undefined,
+            orderNumber: orderNumber || undefined,
+            attemptId: attemptId || undefined,
+          }),
+        });
+
+        if (isMounted && res.paid && res.orderId) {
+          clearCart();
+          if (pollTimer) clearInterval(pollTimer);
+          router.replace(`/(main)/orders/${res.orderId}` as any);
+        } else if (isMounted && res.paid) {
+          clearCart();
+          if (pollTimer) clearInterval(pollTimer);
+          router.replace('/(main)/orders' as any);
+        }
+      } catch (e) {
+        // Silent
+      }
+    };
+
+    // 1. Check whenever user returns from background to foreground (e.g. from GoPay app or browser simulator)
+    const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
+      if (nextAppState === 'active') {
+        performSilentCheck();
+      }
+    });
+
+    // 2. Poll every 3.5 seconds while modal is open
+    pollTimer = setInterval(performSilentCheck, 3500);
+
+    return () => {
+      isMounted = false;
+      subscription.remove();
+      if (pollTimer) clearInterval(pollTimer);
+    };
+  }, [orderNumber, orderId, attemptId]);
 
   const handleCopyVa = async () => {
     if (!vaNumber) return;
@@ -112,6 +169,7 @@ export default function PaymentWebViewModal() {
         body: JSON.stringify({
           orderId: orderId || undefined,
           orderNumber: orderNumber || undefined,
+          attemptId: attemptId || undefined,
         }),
       });
 

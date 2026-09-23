@@ -421,6 +421,7 @@ export default function CheckoutScreen() {
         total: number;
         charge: {
           orderNumber: string;
+          attemptId?: string;
           paymentType: string;
           snapToken?: string;
           redirectUrl?: string;
@@ -473,6 +474,7 @@ export default function CheckoutScreen() {
         params: {
           draftId: sessionRes.draftId,
           orderNumber: sessionRes.orderNumber,
+          attemptId: chargeRes.attemptId,
           paymentType: chargeRes.paymentType || selectedMethodCode,
           snapToken: chargeRes.snapToken,
           redirectUrl: chargeRes.redirectUrl,

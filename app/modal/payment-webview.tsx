@@ -76,11 +76,6 @@ export default function PaymentWebViewModal() {
   const isVa = paymentType === 'bank_transfer' || paymentType === 'echannel' || Boolean(vaNumber);
   const isQr = paymentType === 'qris' || Boolean(qrUrl);
 
-  // Jika metode adalah Virtual Account atau Snap, buka langsung tampilan Midtrans Snap WebView secara penuh
-  const [activeTab, setActiveTab] = useState<'details' | 'webview'>(
-    isVa && redirectUrl ? 'webview' : 'details'
-  );
-
   const targetSimulatorUrl =
     deeplinkUrl ||
     redirectUrl ||
@@ -88,18 +83,10 @@ export default function PaymentWebViewModal() {
       ? 'https://app.sandbox.midtrans.com/snap/v2/vtweb/' + params.snapToken
       : '');
 
-  // Auto-open simulator in browser for GoPay if available
-  useEffect(() => {
-    let opened = false;
-    if (isEWallet && targetSimulatorUrl && !opened) {
-      opened = true;
-      try {
-        Linking.openURL(targetSimulatorUrl).catch(() => {});
-      } catch (e) {
-        // Ignored
-      }
-    }
-  }, [isEWallet, targetSimulatorUrl]);
+  // Langsung buka simulator / Snap di layar secara interaktif untuk semua metode kecuali QRIS
+  const [activeTab, setActiveTab] = useState<'details' | 'webview'>(
+    isQr ? 'details' : (targetSimulatorUrl ? 'webview' : 'details')
+  );
 
   // Auto-polling & AppState listener to automatically detect payment settlement
   useEffect(() => {
@@ -467,10 +454,10 @@ export default function PaymentWebViewModal() {
           <View style={styles.webViewTopBar}>
             <TouchableOpacity
               style={styles.webViewBackBtn}
-              onPress={() => setActiveTab('details')}
+              onPress={handleOpenSimulator}
               activeOpacity={0.8}
             >
-              <Text style={styles.webViewBackBtnText}>Tampilkan Ringkasan Detail</Text>
+              <Text style={styles.webViewBackBtnText}>Buka di Tab Baru</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.webViewCheckBtn}
@@ -483,20 +470,20 @@ export default function PaymentWebViewModal() {
 
           {Platform.OS === 'web' ? (
             <iframe
-              src={redirectUrl}
+              src={targetSimulatorUrl}
               style={{ width: '100%', height: '100%', border: 'none' }}
-              title="Midtrans Snap Payment"
+              title="Midtrans Simulator & Payment"
             />
           ) : (
             <>
               {loading && (
                 <View style={styles.loadingOverlay}>
                   <ActivityIndicator size="large" color="#181F4B" />
-                  <Text style={styles.loadingText}>Memuat Halaman Pembayaran Midtrans...</Text>
+                  <Text style={styles.loadingText}>Memuat Simulator Pembayaran Midtrans...</Text>
                 </View>
               )}
               <WebView
-                source={{ uri: redirectUrl }}
+                source={{ uri: targetSimulatorUrl }}
                 onLoadStart={() => setLoading(true)}
                 onLoadEnd={() => setLoading(false)}
                 onNavigationStateChange={(navState) => {

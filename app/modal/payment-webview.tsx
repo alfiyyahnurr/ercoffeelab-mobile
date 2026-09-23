@@ -83,10 +83,7 @@ export default function PaymentWebViewModal() {
       ? 'https://app.sandbox.midtrans.com/snap/v2/vtweb/' + params.snapToken
       : '');
 
-  // Langsung buka simulator / Snap di layar secara interaktif untuk semua metode kecuali QRIS
-  const [activeTab, setActiveTab] = useState<'details' | 'webview'>(
-    isQr ? 'details' : (targetSimulatorUrl ? 'webview' : 'details')
-  );
+  const [activeTab, setActiveTab] = useState<'details' | 'webview'>('details');
 
   // Auto-polling & AppState listener to automatically detect payment settlement
   useEffect(() => {
@@ -155,14 +152,18 @@ export default function PaymentWebViewModal() {
   const handleOpenSimulator = async () => {
     if (!targetSimulatorUrl) return;
     try {
-      const canOpen = await Linking.canOpenURL(targetSimulatorUrl);
-      if (canOpen) {
-        await Linking.openURL(targetSimulatorUrl);
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        window.open(targetSimulatorUrl, '_blank');
       } else {
-        await Linking.openURL(targetSimulatorUrl);
+        const canOpen = await Linking.canOpenURL(targetSimulatorUrl);
+        if (canOpen) {
+          await Linking.openURL(targetSimulatorUrl);
+        } else {
+          await Linking.openURL(targetSimulatorUrl);
+        }
       }
     } catch {
-      if (redirectUrl) {
+      if (redirectUrl && Platform.OS !== 'web') {
         setActiveTab('webview');
       }
     }

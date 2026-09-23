@@ -454,17 +454,23 @@ export default function CheckoutScreen() {
 
       setShowPinModal(false);
 
-      // App-to-App Deeplink handling (GoPay / ShopeePay)
-      if (chargeRes.deeplinkUrl) {
+      const targetLaunchUrl = chargeRes.deeplinkUrl || chargeRes.redirectUrl;
+
+      // Direct Launch: Buka aplikasi native (di Production) atau buka simulator (di Sandbox)
+      if (targetLaunchUrl) {
         try {
-          const supported = await Linking.canOpenURL(chargeRes.deeplinkUrl);
-          if (supported) {
-            await Linking.openURL(chargeRes.deeplinkUrl);
+          if (Platform.OS === 'web' && typeof window !== 'undefined') {
+            window.open(targetLaunchUrl, '_blank');
           } else {
-            await Linking.openURL(chargeRes.deeplinkUrl);
+            const supported = await Linking.canOpenURL(targetLaunchUrl);
+            if (supported) {
+              await Linking.openURL(targetLaunchUrl);
+            } else {
+              await Linking.openURL(targetLaunchUrl);
+            }
           }
         } catch (e) {
-          console.warn('[checkout] Deeplink open error:', e);
+          console.warn('[checkout] Direct launch error:', e);
         }
       }
 

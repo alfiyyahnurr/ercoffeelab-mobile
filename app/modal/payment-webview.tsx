@@ -8,6 +8,7 @@ import {
   Platform,
   ScrollView,
   Image,
+  Alert,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as Linking from 'expo-linking';
@@ -26,10 +27,13 @@ import {
   AlertCircle,
 } from 'lucide-react-native';
 import { mobileApiFetch } from '@/lib/api-client';
+import { useCart } from '@/lib/cart-store';
 
 export default function PaymentWebViewModal() {
   const router = useRouter();
+  const { clearCart } = useCart();
   const params = useLocalSearchParams<{
+    draftId?: string;
     orderId?: string;
     orderNumber?: string;
     paymentType?: string;
@@ -45,6 +49,7 @@ export default function PaymentWebViewModal() {
     expiryTime?: string;
   }>();
 
+  const draftId = params.draftId || '';
   const orderId = params.orderId || '';
   const orderNumber = params.orderNumber || '';
   const paymentType = (params.paymentType || '').toLowerCase();
@@ -60,6 +65,7 @@ export default function PaymentWebViewModal() {
 
   const [loading, setLoading] = useState<boolean>(true);
   const [simulating, setSimulating] = useState<boolean>(false);
+  const [checking, setChecking] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'details' | 'webview'>('details');
 
@@ -92,36 +98,80 @@ export default function PaymentWebViewModal() {
   };
 
   const handleFinishPayment = async () => {
-    if (orderId) {
-      try {
-        await mobileApiFetch('/api/payments/midtrans/check-status', {
-          method: 'POST',
-          body: JSON.stringify({ orderId }),
-        });
-      } catch {
-        // Ignored
+    if (checking) return;
+    setChecking(true);
+    try {
+      const res = await mobileApiFetch<{
+        status: string;
+        paid: boolean;
+        orderId?: number | string;
+        orderNumber?: string;
+        message?: string;
+      }>('/api/payments/midtrans/check-status', {
+        method: 'POST',
+        body: JSON.stringify({
+          orderId: orderId || undefined,
+          orderNumber: orderNumber || undefined,
+        }),
+      });
+
+      if (res.paid && res.orderId) {
+        clearCart();
+        router.replace(`/(main)/orders/${res.orderId}` as any);
+        return;
       }
-      router.replace(`/(main)/orders/${orderId}` as any);
-    } else {
-      router.replace('/(main)/orders' as any);
+
+      if (res.paid) {
+        clearCart();
+        router.replace('/(main)/orders' as any);
+        return;
+      }
+
+      // If still pending/unpaid
+      if (res.orderId) {
+        router.replace(`/(main)/orders/${res.orderId}` as any);
+      } else {
+        Alert.alert(
+          'Status Pembayaran',
+          'Pembayaran belum terkonfirmasi lunas. Silakan selesaikan transaksi kamu terlebih dahulu.'
+        );
+      }
+    } catch (err: any) {
+      console.warn('[payment-webview] Check status error:', err);
+      if (orderId) {
+        router.replace(`/(main)/orders/${orderId}` as any);
+      }
+    } finally {
+      setChecking(false);
     }
   };
 
   const handleSimulatePayment = async () => {
-    if (!orderId || simulating) return;
+    if (simulating) return;
 
     setSimulating(true);
     try {
       // Call dev simulation endpoint POST /api/payments/midtrans/simulate
-      await mobileApiFetch<{ status: string; paid: boolean }>('/api/payments/midtrans/simulate', {
+      const simRes = await mobileApiFetch<{
+        status: string;
+        paid: boolean;
+        orderId?: number | string;
+        orderNumber?: string;
+      }>('/api/payments/midtrans/simulate', {
         method: 'POST',
         body: JSON.stringify({
-          orderId: orderId,
+          orderId: orderId || undefined,
+          orderNumber: orderNumber || undefined,
           result: 'success',
         }),
       });
 
-      await handleFinishPayment();
+      if (simRes.paid && simRes.orderId) {
+        clearCart();
+        router.replace(`/(main)/orders/${simRes.orderId}` as any);
+      } else {
+        await handleFinishPayment();
+      }
     } catch (err: any) {
       console.warn('[payment-webview] Simulation error:', err);
       await handleFinishPayment();

@@ -399,7 +399,7 @@ export default function CheckoutScreen() {
     setPinError(null);
 
     try {
-      // Format items payload for POST /api/orders
+      // Format items payload for POST /api/payments/checkout-session
       const payloadItems = items.map((i) => ({
         productId: String(i.productId),
         qty: i.quantity,
@@ -413,12 +413,27 @@ export default function CheckoutScreen() {
         ? `${deliveryAddress.trim()} Catatan: ${courierNotes.trim()}`
         : deliveryAddress.trim();
 
-      // 1. Create Order POST /api/orders with PIN verification and distance coordinates
-      const orderRes = await mobileApiFetch<{
-        id: number;
+      // Create Payment Draft & Request Direct Midtrans Charge via /api/payments/checkout-session
+      // Orders are ONLY inserted into orders table after payment is completed / paid
+      const sessionRes = await mobileApiFetch<{
+        draftId: string;
         orderNumber: string;
         total: number;
-      }>('/api/orders', {
+        charge: {
+          orderNumber: string;
+          paymentType: string;
+          snapToken?: string;
+          redirectUrl?: string;
+          deeplinkUrl?: string;
+          qrUrl?: string;
+          qrString?: string;
+          vaNumber?: string;
+          bankName?: string;
+          billerCode?: string;
+          billKey?: string;
+          expiryTime?: string;
+        };
+      }>('/api/payments/checkout-session', {
         method: 'POST',
         body: JSON.stringify({
           pin: enteredPin,
@@ -428,41 +443,17 @@ export default function CheckoutScreen() {
           deliveryLatitude: fulfillmentType === 'delivery' ? targetLat : undefined,
           deliveryLongitude: fulfillmentType === 'delivery' ? targetLng : undefined,
           paymentMethodId: selectedPaymentId,
+          bank: selectedMethodCode === 'bank_transfer' ? selectedBank : undefined,
           voucherCode: appliedVoucher ? appliedVoucher.code : undefined,
           items: payloadItems,
         }),
       });
 
-      const orderId = orderRes.id;
+      const chargeRes = sessionRes.charge || ({} as any);
 
-      // 2. Request Direct Midtrans Charge POST /api/payments/midtrans/charge
-      const chargeRes = await mobileApiFetch<{
-        orderId: number | string;
-        orderNumber: string;
-        paymentType: string;
-        snapToken?: string;
-        redirectUrl?: string;
-        deeplinkUrl?: string;
-        qrUrl?: string;
-        qrString?: string;
-        vaNumber?: string;
-        bankName?: string;
-        billerCode?: string;
-        billKey?: string;
-        expiryTime?: string;
-      }>('/api/payments/midtrans/charge', {
-        method: 'POST',
-        body: JSON.stringify({
-          orderId: orderId,
-          bank: selectedMethodCode === 'bank_transfer' ? selectedBank : undefined,
-        }),
-      });
-
-      // Clear local cart
-      clearCart();
       setShowPinModal(false);
 
-      // 3. App-to-App Deeplink handling (GoPay / ShopeePay)
+      // App-to-App Deeplink handling (GoPay / ShopeePay)
       if (chargeRes.deeplinkUrl) {
         try {
           const supported = await Linking.canOpenURL(chargeRes.deeplinkUrl);
@@ -476,12 +467,12 @@ export default function CheckoutScreen() {
         }
       }
 
-      // 4. Open Payment Modal / WebView with comprehensive parameters
+      // Open Payment Modal / WebView with session parameters
       router.push({
         pathname: '/modal/payment-webview' as any,
         params: {
-          orderId: String(orderId),
-          orderNumber: orderRes.orderNumber,
+          draftId: sessionRes.draftId,
+          orderNumber: sessionRes.orderNumber,
           paymentType: chargeRes.paymentType || selectedMethodCode,
           snapToken: chargeRes.snapToken,
           redirectUrl: chargeRes.redirectUrl,
@@ -496,7 +487,7 @@ export default function CheckoutScreen() {
         },
       });
     } catch (err: any) {
-      setPinError(err.message || 'Gagal memproses pesanan.');
+      setPinError(err.message || 'Gagal memproses pembayaran.');
     } finally {
       setSubmitting(false);
     }

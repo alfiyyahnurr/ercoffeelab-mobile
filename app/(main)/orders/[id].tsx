@@ -52,60 +52,6 @@ export default function OrderTrackingScreen() {
   });
 
   const order = orderData;
-  const [loadingPayment, setLoadingPayment] = useState<boolean>(false);
-  const [simulatingPayment, setSimulatingPayment] = useState<boolean>(false);
-  const [checkingPayment, setCheckingPayment] = useState<boolean>(false);
-
-  // Auto-sync status from Midtrans in background when screen loads with unpaid order
-  useEffect(() => {
-    if (order && order.paymentStatus === 'unpaid' && order.orderStatus !== 'cancelled') {
-      handleCheckPaymentStatus(true);
-    }
-  }, [order?.id, order?.paymentStatus]);
-
-  const handleCheckPaymentStatus = async (silent = false) => {
-    if (!order || checkingPayment) return;
-
-    setCheckingPayment(true);
-    try {
-      const res = await mobileApiFetch<{
-        status: string;
-        paid: boolean;
-        paymentStatus?: string;
-        message?: string;
-      }>('/api/payments/midtrans/check-status', {
-        method: 'POST',
-        body: JSON.stringify({ orderId: order.id }),
-      });
-
-      await queryClient.invalidateQueries({ queryKey: ['order-detail', orderId] });
-
-      if (res?.paid) {
-        if (!silent) {
-          Alert.alert(
-            'Pembayaran Berhasil!',
-            'Pembayaran Anda telah terverifikasi. Pesanan sedang disiapkan barista.'
-          );
-        }
-      } else {
-        if (!silent) {
-          Alert.alert(
-            'Status Pembayaran',
-            res?.message || 'Pesanan masih menunggu pembayaran. Silakan selesaikan pembayaran di Midtrans.'
-          );
-        }
-      }
-    } catch (err: any) {
-      if (!silent) {
-        Alert.alert(
-          'Gagal Cek Status',
-          err?.message || 'Terjadi kesalahan saat memeriksa status pembayaran.'
-        );
-      }
-    } finally {
-      setCheckingPayment(false);
-    }
-  };
 
   const handleBack = () => {
     if (router.canGoBack()) {
@@ -120,58 +66,6 @@ export default function OrderTrackingScreen() {
     const message = `Halo ER Coffee Lab, saya ingin menanyakan status pesanan nomor #${order?.orderNumber || orderId}.`;
     const url = `https://wa.me/${outletPhone}?text=${encodeURIComponent(message)}`;
     Linking.openURL(url).catch(() => {});
-  };
-
-  const handleContinuePayment = async () => {
-    if (!order || loadingPayment) return;
-
-    setLoadingPayment(true);
-    try {
-      const res = await mobileApiFetch<{ snapToken: string; redirectUrl?: string }>(
-        '/api/payments/midtrans/charge',
-        {
-          method: 'POST',
-          body: JSON.stringify({ orderId: order.id }),
-        }
-      );
-
-      if (res?.snapToken) {
-        router.push({
-          pathname: '/modal/payment-webview',
-          params: {
-            orderId: String(order.id),
-            orderNumber: order.orderNumber || `ERC-ORD-${order.id}`,
-            snapToken: res.snapToken,
-            redirectUrl: res.redirectUrl || '',
-          },
-        } as any);
-      } else {
-        alert('Gagal mendapatkan token pembayaran. Silakan coba kembali.');
-      }
-    } catch (err: any) {
-      alert(err?.message || 'Gagal memproses pembayaran. Silakan coba beberapa saat lagi.');
-    } finally {
-      setLoadingPayment(false);
-    }
-  };
-
-  const handleSimulatePayment = async () => {
-    if (!order || simulatingPayment) return;
-
-    setSimulatingPayment(true);
-    try {
-      await mobileApiFetch('/api/payments/midtrans/simulate', {
-        method: 'POST',
-        body: JSON.stringify({
-          orderId: String(order.id),
-          result: 'success',
-        }),
-      });
-    } catch {
-      // Ignored
-    } finally {
-      setSimulatingPayment(false);
-    }
   };
 
   const formatRupiah = (val: number) => {
@@ -190,29 +84,26 @@ export default function OrderTrackingScreen() {
     });
   };
 
-  // Stepper logic: 5 Steps
-  const getStepIndex = (orderStatus?: string, paymentStatus?: string) => {
+  // Stepper logic: 4 Steps for Sah Paid Orders
+  const getStepIndex = (orderStatus?: string) => {
     const status = (orderStatus || '').toLowerCase();
-    const pay = (paymentStatus || '').toLowerCase();
 
     if (status === 'cancelled') return -1;
-    if (pay === 'unpaid') return 1;
-    if (['checkout', 'paid', 'confirmed', 'pending'].includes(status)) return 2;
-    if (['processing', 'preparing'].includes(status)) return 3;
-    if (['ready', 'on_delivery', 'delivering'].includes(status)) return 4;
-    if (status === 'completed') return 5;
-    return 2;
+    if (['checkout', 'paid', 'confirmed', 'pending'].includes(status)) return 1;
+    if (['processing', 'preparing'].includes(status)) return 2;
+    if (['ready', 'on_delivery', 'delivering'].includes(status)) return 3;
+    if (status === 'completed') return 4;
+    return 1;
   };
 
-  const activeStep = getStepIndex(order?.orderStatus, order?.paymentStatus);
+  const activeStep = getStepIndex(order?.orderStatus);
   const isCancelled = (order?.orderStatus || '').toLowerCase() === 'cancelled';
 
   const steps = [
-    { step: 1, title: 'Menunggu Pembayaran', sub: 'Menunggu konfirmasi Snap Midtrans' },
-    { step: 2, title: 'Pembayaran Terkonfirmasi', sub: 'Pembayaran terverifikasi' },
-    { step: 3, title: 'Sedang Diracik Barista', sub: 'Pesanan sedang diracik barista' },
-    { step: 4, title: 'Siap Diambil atau Sedang Dikirim', sub: order?.fulfillmentType === 'delivery' ? 'Kurir mengirimkan pesanan' : 'Silakan ambil di counter toko' },
-    { step: 5, title: 'Pesanan Selesai', sub: 'Terima kasih telah berbelanja' },
+    { step: 1, title: 'Pembayaran Terkonfirmasi', sub: 'Pesanan diterima dan terverifikasi' },
+    { step: 2, title: 'Sedang Diracik Barista', sub: 'Pesanan sedang disiapkan barista' },
+    { step: 3, title: 'Siap Diambil atau Dikirim', sub: order?.fulfillmentType === 'delivery' ? 'Kurir mengirimkan pesanan ke alamat kamu' : 'Silakan ambil di counter toko' },
+    { step: 4, title: 'Pesanan Selesai', sub: 'Terima kasih telah menikmati menu kami' },
   ];
 
   if (isLoading || !order) {
@@ -255,218 +146,187 @@ export default function OrderTrackingScreen() {
                 <Text style={styles.orderNumberTitle}>{order.orderNumber || `ERC-ORD-${order.id}`}</Text>
                 <Text style={styles.orderDateSub}>{formatDate(order.createdAt)}</Text>
               </View>
-                <View style={styles.fulfillmentBadge}>
-                  {order.fulfillmentType === 'delivery' ? (
-                    <Truck size={14} color="#181F4B" style={{ marginRight: 4 }} />
-                  ) : (
-                    <ShoppingBag size={14} color="#181F4B" style={{ marginRight: 4 }} />
-                  )}
-                  <Text style={styles.fulfillmentText}>
-                    {order.fulfillmentType === 'delivery' ? 'Delivery' : 'Pick Up'}
-                  </Text>
-                </View>
-              </View>
-            </View>
-
-            {/* Cancelled Alert Banner OR Live Progress Stepper Card */}
-            {isCancelled ? (
-              <View style={styles.cancelledCard}>
-                <View style={styles.cancelledHeaderRow}>
-                  <XCircle size={22} color="#C9576B" style={{ marginRight: 8 }} />
-                  <Text style={styles.cancelledTitle}>Pesanan Dibatalkan</Text>
-                </View>
-                <Text style={styles.cancelledSubText}>
-                  Pesanan ini telah dibatalkan oleh pihak toko. Silakan hubungi kasir atau outlet kami via WhatsApp jika memerlukan informasi lebih lanjut.
+              <View style={styles.fulfillmentBadge}>
+                {order.fulfillmentType === 'delivery' ? (
+                  <Truck size={14} color="#181F4B" style={{ marginRight: 4 }} />
+                ) : (
+                  <ShoppingBag size={14} color="#181F4B" style={{ marginRight: 4 }} />
+                )}
+                <Text style={styles.fulfillmentText}>
+                  {order.fulfillmentType === 'delivery' ? 'Delivery' : 'Pick Up'}
                 </Text>
               </View>
-            ) : (
-              <View style={styles.stepperCard}>
-                <View style={styles.stepperHeader}>
-                  <Clock size={18} color="#C9A876" style={{ marginRight: 6 }} />
-                  <Text style={styles.stepperHeaderTitle}>Status Progres Pesanan</Text>
-                </View>
+            </View>
+          </View>
 
-                <View style={styles.stepperList}>
-                  {steps.map((item, idx) => {
-                    const isDone = item.step < activeStep;
-                    const isCurrent = item.step === activeStep;
+          {/* Cancelled Alert Banner OR Live Progress Stepper Card */}
+          {isCancelled ? (
+            <View style={styles.cancelledCard}>
+              <View style={styles.cancelledHeaderRow}>
+                <XCircle size={22} color="#C9576B" style={{ marginRight: 8 }} />
+                <Text style={styles.cancelledTitle}>Pesanan Dibatalkan</Text>
+              </View>
+              <Text style={styles.cancelledSubText}>
+                Pesanan ini telah dibatalkan oleh pihak toko. Silakan hubungi kasir atau outlet kami via WhatsApp jika memerlukan informasi lebih lanjut.
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.stepperCard}>
+              <View style={styles.stepperHeader}>
+                <Clock size={18} color="#C9A876" style={{ marginRight: 6 }} />
+                <Text style={styles.stepperHeaderTitle}>Status Progres Pesanan</Text>
+              </View>
 
-                    return (
-                      <View key={item.step} style={styles.stepRow}>
-                        {/* Left Circle Indicator */}
-                        <View style={styles.stepIndicatorWrapper}>
-                          <View
-                            style={[
-                              styles.stepCircle,
-                              isDone && styles.stepCircleDone,
-                              isCurrent && styles.stepCircleCurrent,
-                            ]}
-                          >
-                            {isDone ? (
-                              <CheckCircle2 size={16} color="#FFFFFF" />
-                            ) : isCurrent ? (
-                              <Clock size={16} color="#C9A876" />
-                            ) : (
-                              <Text style={styles.stepCircleText}>{item.step}</Text>
-                            )}
-                          </View>
-                          {idx < steps.length - 1 && (
-                            <View
-                              style={[
-                                styles.stepLine,
-                                isDone && styles.stepLineDone,
-                              ]}
-                            />
+              <View style={styles.stepperList}>
+                {steps.map((item, idx) => {
+                  const isDone = item.step < activeStep;
+                  const isCurrent = item.step === activeStep;
+
+                  return (
+                    <View key={item.step} style={styles.stepRow}>
+                      {/* Left Circle Indicator */}
+                      <View style={styles.stepIndicatorWrapper}>
+                        <View
+                          style={[
+                            styles.stepCircle,
+                            isDone && styles.stepCircleDone,
+                            isCurrent && styles.stepCircleCurrent,
+                          ]}
+                        >
+                          {isDone ? (
+                            <CheckCircle2 size={16} color="#FFFFFF" />
+                          ) : isCurrent ? (
+                            <Clock size={16} color="#C9A876" />
+                          ) : (
+                            <Text style={styles.stepCircleText}>{item.step}</Text>
                           )}
                         </View>
-
-                        {/* Right Title & Subtitle */}
-                        <View style={styles.stepTextWrapper}>
-                          <Text
+                        {idx < steps.length - 1 && (
+                          <View
                             style={[
-                              styles.stepTitle,
-                              (isDone || isCurrent) && styles.stepTitleActive,
+                              styles.stepLine,
+                              isDone && styles.stepLineDone,
                             ]}
-                          >
-                            {item.title}
-                          </Text>
-                          <Text style={styles.stepSubtitle}>{item.sub}</Text>
-                        </View>
+                          />
+                        )}
                       </View>
-                    );
-                  })}
-                </View>
-              </View>
-            )}
 
-            {/* Pending Payment Call to Action Banner (If still unpaid) */}
-            {!isCancelled && order.paymentStatus !== 'paid' && (
-              <View style={styles.pendingPaymentCard}>
-                <View style={styles.pendingHeaderRow}>
-                  <Clock size={20} color="#C9A876" style={{ marginRight: 8 }} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.pendingTitle}>Menunggu Pembayaran</Text>
-                    <Text style={styles.pendingSubText}>
-                      Pesanan belum dibayar. Selesaikan pembayaran agar pesanan segera dibuat oleh barista.
-                    </Text>
-                  </View>
-                </View>
-
-                <TouchableOpacity
-                  style={styles.continuePaymentBtn}
-                  onPress={handleContinuePayment}
-                  disabled={loadingPayment || checkingPayment}
-                  activeOpacity={0.85}
-                >
-                  {loadingPayment ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" style={{ marginRight: 8 }} />
-                  ) : (
-                    <CreditCard size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
-                  )}
-                  <Text style={styles.continuePaymentBtnText}>
-                    {loadingPayment ? 'Menghubungkan Midtrans...' : `Lanjutkan Pembayaran ${formatRupiah(order.total)}`}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {/* Outlet Info & Contact Button Card */}
-            <View style={styles.outletCard}>
-              <View style={styles.outletHeaderRow}>
-                <Store size={18} color="#181F4B" style={{ marginRight: 8 }} />
-                <Text style={styles.outletTitle}>{order.outletName || 'ER Coffee Lab'}</Text>
-              </View>
-
-              {order.fulfillmentType === 'delivery' && order.deliveryAddress ? (
-                <View style={styles.addressBox}>
-                  <MapPin size={16} color="#C9A876" style={{ marginRight: 6 }} />
-                  <Text style={styles.addressText}>{order.deliveryAddress}</Text>
-                </View>
-              ) : null}
-
-              <TouchableOpacity
-                style={styles.waButton}
-                onPress={handleContactWhatsApp}
-                activeOpacity={0.85}
-              >
-                <MessageCircle size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
-                <Text style={styles.waButtonText}>Hubungi Outlet via WhatsApp</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Order Items Breakdown Card */}
-            <View style={styles.itemsCard}>
-              <Text style={styles.itemsCardTitle}>Rincian Pesanan Menu</Text>
-
-              {order.items && order.items.length > 0 ? (
-                order.items.map((item: OrderItem, idx: number) => (
-                  <View key={idx} style={styles.itemRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.itemName}>
-                        {item.qty}x {item.productNameSnapshot}
-                      </Text>
-                      {item.temperature || item.sugar || item.ice ? (
-                        <Text style={styles.itemOptions}>
-                          {[item.temperature, item.ice, item.sugar].filter(Boolean).join(' · ')}
+                      {/* Right Title & Subtitle */}
+                      <View style={styles.stepTextWrapper}>
+                        <Text
+                          style={[
+                            styles.stepTitle,
+                            (isDone || isCurrent) && styles.stepTitleActive,
+                          ]}
+                        >
+                          {item.title}
                         </Text>
-                      ) : null}
+                        <Text style={styles.stepSubtitle}>{item.sub}</Text>
+                      </View>
                     </View>
-                    <Text style={styles.itemPrice}>
-                      {formatRupiah(item.unitPrice * item.qty)}
-                    </Text>
-                  </View>
-                ))
-              ) : (
-                <Text style={styles.noItemsText}>1 Menu Pesanan Kopi</Text>
-              )}
-
-              <View style={styles.divider} />
-
-              <View style={styles.costRow}>
-                <Text style={styles.costLabel}>Subtotal Menu</Text>
-                <Text style={styles.costValue}>{formatRupiah(order.subtotal || order.total)}</Text>
-              </View>
-
-              {(order.fulfillmentType === 'delivery' || (order.deliveryFee ?? 0) > 0) && (
-                <View style={styles.costRow}>
-                  <Text style={styles.costLabel}>
-                    Ongkos Kirim Delivery {order.deliveryDistanceKm ? `${order.deliveryDistanceKm} km` : ''}
-                  </Text>
-                  <Text style={styles.costValue}>{formatRupiah(order.deliveryFee || 0)}</Text>
-                </View>
-              )}
-
-              {(order.serviceFee ?? 0) > 0 && (
-                <View style={styles.costRow}>
-                  <Text style={styles.costLabel}>Biaya Layanan</Text>
-                  <Text style={styles.costValue}>{formatRupiah(order.serviceFee || 0)}</Text>
-                </View>
-              )}
-
-              {order.discount ? (
-                <View style={styles.costRow}>
-                  <Text style={styles.costLabelDiscount}>Diskon Voucher</Text>
-                  <Text style={styles.costValueDiscount}>-{formatRupiah(order.discount)}</Text>
-                </View>
-              ) : null}
-
-              <View style={[styles.costRow, { marginTop: 6, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#F0F1F6' }]}>
-                <Text style={styles.totalLabel}>Total Pembayaran</Text>
-                <Text style={styles.totalValue}>{formatRupiah(order.total)}</Text>
-              </View>
-
-              <View style={styles.paymentMethodRow}>
-                <CreditCard size={14} color="#181F4B" style={{ marginRight: 6 }} />
-                <Text style={styles.paymentMethodText}>
-                  Metode: {order.paymentMethodName || 'Midtrans Payment'} ({order.paymentStatus === 'paid' ? 'LUNAS' : 'PENDING'})
-                </Text>
+                  );
+                })}
               </View>
             </View>
-          </>
-        </ScrollView>
-      </View>
-    );
-  }
+          )}
+
+          {/* Outlet Info & Contact Button Card */}
+          <View style={styles.outletCard}>
+            <View style={styles.outletHeaderRow}>
+              <Store size={18} color="#181F4B" style={{ marginRight: 8 }} />
+              <Text style={styles.outletTitle}>{order.outletName || 'ER Coffee Lab'}</Text>
+            </View>
+
+            {order.fulfillmentType === 'delivery' && order.deliveryAddress ? (
+              <View style={styles.addressBox}>
+                <MapPin size={16} color="#C9A876" style={{ marginRight: 6 }} />
+                <Text style={styles.addressText}>{order.deliveryAddress}</Text>
+              </View>
+            ) : null}
+
+            <TouchableOpacity
+              style={styles.waButton}
+              onPress={handleContactWhatsApp}
+              activeOpacity={0.85}
+            >
+              <MessageCircle size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+              <Text style={styles.waButtonText}>Hubungi Outlet via WhatsApp</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Order Items Breakdown Card */}
+          <View style={styles.itemsCard}>
+            <Text style={styles.itemsCardTitle}>Rincian Pesanan Menu</Text>
+
+            {order.items && order.items.length > 0 ? (
+              order.items.map((item: OrderItem, idx: number) => (
+                <View key={idx} style={styles.itemRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.itemName}>
+                      {item.qty}x {item.productNameSnapshot}
+                    </Text>
+                    {item.temperature || item.sugar || item.ice ? (
+                      <Text style={styles.itemOptions}>
+                        {[item.temperature, item.ice, item.sugar].filter(Boolean).join(' · ')}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <Text style={styles.itemPrice}>
+                    {formatRupiah(item.unitPrice * item.qty)}
+                  </Text>
+                </View>
+              ))
+            ) : (
+              <Text style={styles.noItemsText}>1 Menu Pesanan Kopi</Text>
+            )}
+
+            <View style={styles.divider} />
+
+            <View style={styles.costRow}>
+              <Text style={styles.costLabel}>Subtotal Menu</Text>
+              <Text style={styles.costValue}>{formatRupiah(order.subtotal || order.total)}</Text>
+            </View>
+
+            {(order.fulfillmentType === 'delivery' || (order.deliveryFee ?? 0) > 0) && (
+              <View style={styles.costRow}>
+                <Text style={styles.costLabel}>
+                  Ongkos Kirim Delivery {order.deliveryDistanceKm ? `${order.deliveryDistanceKm} km` : ''}
+                </Text>
+                <Text style={styles.costValue}>{formatRupiah(order.deliveryFee || 0)}</Text>
+              </View>
+            )}
+
+            {(order.serviceFee ?? 0) > 0 && (
+              <View style={styles.costRow}>
+                <Text style={styles.costLabel}>Biaya Layanan</Text>
+                <Text style={styles.costValue}>{formatRupiah(order.serviceFee || 0)}</Text>
+              </View>
+            )}
+
+            {order.discount ? (
+              <View style={styles.costRow}>
+                <Text style={styles.costLabelDiscount}>Diskon Voucher</Text>
+                <Text style={styles.costValueDiscount}>-{formatRupiah(order.discount)}</Text>
+              </View>
+            ) : null}
+
+            <View style={[styles.costRow, { marginTop: 6, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#F0F1F6' }]}>
+              <Text style={styles.totalLabel}>Total Pembayaran</Text>
+              <Text style={styles.totalValue}>{formatRupiah(order.total)}</Text>
+            </View>
+
+            <View style={styles.paymentMethodRow}>
+              <CreditCard size={14} color="#181F4B" style={{ marginRight: 6 }} />
+              <Text style={styles.paymentMethodText}>
+                Metode Pembayaran: {order.paymentMethodName || 'Midtrans Payment'} - Status: Lunas
+              </Text>
+            </View>
+          </View>
+        </>
+      </ScrollView>
+    </View>
+  );
+}
 
 const styles = StyleSheet.create({
   container: {

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,15 +9,26 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
+  Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, AlertCircle } from 'lucide-react-native';
+import * as WebBrowser from 'expo-web-browser';
 import { mobileApiFetch } from '@/lib/api-client';
+import { setToken } from '@/lib/auth-store';
+
+WebBrowser.maybeCompleteAuthSession();
+
+const GOOGLE_CLIENT_ID =
+  process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ||
+  '490852820232-bijpsof5cc786hqu31vd816u70hdi0mp.apps.googleusercontent.com';
 
 export default function LoginScreen() {
   const router = useRouter();
   const [phone, setPhone] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
 
   // Helper to extract clean Indonesian digits after +62/08
   const getCleanPhoneDigits = (rawPhone: string) => {
@@ -46,13 +57,161 @@ export default function LoginScreen() {
     }
   };
 
-  const [loading, setLoading] = useState(false);
+  // Inisialisasi Google Identity Services (GIS) untuk Web
+  useEffect(() => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const initGis = () => {
+        if ((window as any).google?.accounts?.id) {
+          try {
+            (window as any).google.accounts.id.initialize({
+              client_id: GOOGLE_CLIENT_ID,
+              callback: (response: any) => {
+                if (response?.credential) {
+                  processGoogleAuth({ idToken: response.credential });
+                }
+              },
+            });
+          } catch (e) {
+            console.warn('[login] GIS init error:', e);
+          }
+        }
+      };
+
+      if ((window as any).google?.accounts?.id) {
+        initGis();
+      } else {
+        const scriptId = 'google-gsi-script';
+        if (!document.getElementById(scriptId)) {
+          const script = document.createElement('script');
+          script.id = scriptId;
+          script.src = 'https://accounts.google.com/gsi/client';
+          script.async = true;
+          script.defer = true;
+          script.onload = initGis;
+          document.body.appendChild(script);
+        }
+      }
+    }
+  }, []);
+
+  // Memproses data kredensial Google ke Backend API
+  const processGoogleAuth = async (credentials: { idToken?: string; accessToken?: string }) => {
+    setGoogleLoading(true);
+    setErrorMessage(null);
+
+    try {
+      const response = await mobileApiFetch<{
+        token: string;
+        hasPin: boolean;
+        customer: {
+          id: number;
+          email?: string;
+          phone?: string;
+          fullName?: string;
+          avatarUrl?: string;
+          hasPin?: boolean;
+        };
+      }>('/api/auth/customer/google', {
+        method: 'POST',
+        body: JSON.stringify(credentials),
+      });
+
+      if (response.token) {
+        await setToken(response.token);
+
+        const customerHasPin = Boolean(response.hasPin || response.customer?.hasPin);
+        if (customerHasPin) {
+          // Customer lama sudah punya PIN -> verifikasi PIN
+          router.replace('/(auth)/confirm-pin' as any);
+        } else {
+          // Customer baru belum punya PIN -> buat PIN 6 digit
+          router.replace('/(auth)/set-pin' as any);
+        }
+      } else {
+        throw new Error('Sesi autentikasi tidak valid');
+      }
+    } catch (err: any) {
+      console.warn('[login] Google SSO API error:', err);
+      setErrorMessage(err.message || 'Gagal masuk dengan akun Google');
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
+  // Trigger Google Sign-In In-App
+  const handleGoogleSignIn = async () => {
+    setErrorMessage(null);
+    setGoogleLoading(true);
+
+    try {
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        const google = (window as any).google;
+        if (google?.accounts) {
+          // 1. Coba inisialisasi One-Tap prompt
+          google.accounts.id.prompt((notification: any) => {
+            if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+              // 2. Jika One-Tap tidak tampil atau ditutup, buka popup GIS resmi
+              const tokenClient = google.accounts.oauth2.initTokenClient({
+                client_id: GOOGLE_CLIENT_ID,
+                scope: 'email profile openid',
+                callback: (tokenRes: any) => {
+                  if (tokenRes?.access_token) {
+                    processGoogleAuth({ accessToken: tokenRes.access_token });
+                  } else {
+                    setGoogleLoading(false);
+                  }
+                },
+                error_callback: () => {
+                  setGoogleLoading(false);
+                },
+              });
+              tokenClient.requestAccessToken();
+            }
+          });
+          return;
+        }
+      }
+
+      // Native in-app browser sheet (ASWebAuthenticationSession pada iOS / Custom Tabs pada Android)
+      const redirectUri =
+        typeof window !== 'undefined'
+          ? window.location.origin
+          : 'https://ercoffeelab-mobile.vercel.app';
+
+      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
+        GOOGLE_CLIENT_ID
+      )}&redirect_uri=${encodeURIComponent(
+        redirectUri
+      )}&response_type=token&scope=email%20profile%20openid&prompt=select_account`;
+
+      const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUri);
+
+      if (result.type === 'success' && result.url) {
+        // Ambil access_token dari hash URL (#access_token=...)
+        const hashPart = result.url.split('#')[1] || result.url.split('?')[1] || '';
+        const params = new URLSearchParams(hashPart);
+        const accessToken = params.get('access_token');
+        const idToken = params.get('id_token');
+
+        if (accessToken || idToken) {
+          await processGoogleAuth({ accessToken: accessToken || undefined, idToken: idToken || undefined });
+          return;
+        }
+      }
+
+      setGoogleLoading(false);
+    } catch (err: any) {
+      console.warn('[login] Google Sign-In trigger error:', err);
+      setErrorMessage(err.message || 'Gagal memproses login Google');
+      setGoogleLoading(false);
+    }
+  };
 
   const handleContinue = async () => {
     setErrorMessage(null);
     const cleanDigits = getCleanPhoneDigits(phone);
     if (!isPhoneValid()) {
-      setErrorMessage('Nomor WhatsApp harus berupa 9 sampai 12 digit (diawali angka 8)');
+      setErrorMessage('Nomor WhatsApp harus berupa 9 sampai 12 digit diawali angka 8');
       return;
     }
 
@@ -151,7 +310,7 @@ export default function LoginScreen() {
             </View>
           ) : null}
 
-          {/* Big Pill Button "Lanjutkan" */}
+          {/* Big Pill Button "Lanjutkan" (Jalur 1: OTP WhatsApp) */}
           <TouchableOpacity
             style={[
               styles.actionPillButton,
@@ -172,6 +331,36 @@ export default function LoginScreen() {
               >
                 Lanjutkan
               </Text>
+            )}
+          </TouchableOpacity>
+
+          {/* Garis Pemisah Elegan */}
+          <View style={styles.dividerRow}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>atau masuk dengan</Text>
+            <View style={styles.dividerLine} />
+          </View>
+
+          {/* Tombol Resmi "Masuk dengan Google" (Jalur 2: Google SSO In-App) */}
+          <TouchableOpacity
+            style={styles.googleSsoButton}
+            onPress={handleGoogleSignIn}
+            disabled={googleLoading || loading}
+            activeOpacity={0.85}
+          >
+            {googleLoading ? (
+              <ActivityIndicator size="small" color="#181F4B" />
+            ) : (
+              <View style={styles.googleButtonContent}>
+                <Image
+                  source={{
+                    uri: 'https://lh3.googleusercontent.com/COxitqgJr1sJnIDe8-jiKhxDx1FrYbtRHKJ9zqoA7INrfqMIbtfh43IyOiMp-fv5Faox',
+                  }}
+                  style={styles.googleIcon}
+                  resizeMode="contain"
+                />
+                <Text style={styles.googleSsoButtonText}>Masuk dengan Google</Text>
+              </View>
             )}
           </TouchableOpacity>
         </View>
@@ -309,6 +498,54 @@ const styles = StyleSheet.create({
   },
   actionPillTextDisabled: {
     color: '#9AA0A6',
+  },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 24,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#E7E8F0',
+  },
+  dividerText: {
+    marginHorizontal: 16,
+    fontFamily: 'SourceSans3_600SemiBold',
+    fontSize: 13,
+    color: '#8A8F9E',
+  },
+  googleSsoButton: {
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#E7E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...(Platform.OS === 'web'
+      ? { boxShadow: '0px 2px 6px rgba(0, 0, 0, 0.04)' }
+      : {
+          shadowColor: '#000000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.04,
+          shadowRadius: 4,
+        }),
+  },
+  googleButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  googleIcon: {
+    width: 22,
+    height: 22,
+    marginRight: 12,
+  },
+  googleSsoButtonText: {
+    fontFamily: 'AlbertSans_700Bold',
+    fontSize: 15,
+    color: '#181F4B',
   },
   bottomArea: {
     paddingHorizontal: 28,

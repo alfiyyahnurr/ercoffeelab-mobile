@@ -24,7 +24,6 @@ import {
   ShieldCheck,
   MessageCircle,
   AlertCircle,
-  Check,
 } from 'lucide-react-native';
 
 import { getToken, removeToken } from '@/lib/auth-store';
@@ -140,11 +139,6 @@ export default function ProfileScreen() {
                 <View style={styles.incompleteBadge}>
                   <View style={styles.incompleteDot} />
                   <Text style={styles.incompleteBadgeText}>Data Belum Lengkap</Text>
-                </View>
-              ) : customer ? (
-                <View style={styles.completeBadge}>
-                  <Check size={11} color="#2E7D32" style={{ marginRight: 4 }} />
-                  <Text style={styles.completeBadgeText}>Profil Lengkap</Text>
                 </View>
               ) : null}
             </View>
@@ -418,21 +412,6 @@ const styles = StyleSheet.create({
     fontFamily: 'SourceSans3_700Bold',
     fontSize: 11,
     color: '#FCD34D',
-  },
-  completeBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    backgroundColor: 'rgba(52, 211, 153, 0.2)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-    marginTop: 6,
-  },
-  completeBadgeText: {
-    fontFamily: 'SourceSans3_700Bold',
-    fontSize: 11,
-    color: '#6EE7B7',
   },
   noticeBannerCard: {
     backgroundColor: '#FDF9F2',

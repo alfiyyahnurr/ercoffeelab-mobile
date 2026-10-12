@@ -34,6 +34,8 @@ export interface CustomerProfile {
   birthDate?: string | null;
   points?: number;
   tier?: 'Bronze' | 'Silver' | 'Gold' | 'Platinum';
+  avatarUrl?: string | null;
+  ssoProvider?: string | null;
 }
 
 export interface OrderItem {
